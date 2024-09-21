@@ -1,0 +1,14 @@
+{
+  "name": "my-app",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd Backend && nodemon index.js",
+    "client": "cd frontend && npm run dev"
+  },
+  "dependencies": {
+    "@distube/ytsr": "^2.0.4",
+    "cheerio": "^1.0.0",
+    "concurrently": "^7.0.0"
+  }
+}
