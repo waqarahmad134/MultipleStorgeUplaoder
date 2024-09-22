@@ -248,52 +248,42 @@ const searchYoutube = async (query) => {
 }
 
 app.post("/api/upload", upload.array("files"), async (req, res) => {
-  const files = req.files.length === 1 ? req.files[0] : req.files;
+  const files = req.files.length === 1 ? [req.files[0]] : req.files;
   const responses = [];
+
   try {
-    for (const file of files) {
-      try {
-        const mixdropResponse = await uploadToMixdrop(file);
-        responses.push({ service: "Mixdrop", result: mixdropResponse });
-      } catch (error) {
-        console.error("Error uploading to Mixdrop:", error.message);
-      }
+    await Promise.all(files.map(async (file) => {
+      const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "");
 
       try {
-        const doodapiResponse = await uploadToDoodapi(file);
-        responses.push({ service: "Doodapi", result: doodapiResponse });
-      } catch (error) {
-        console.error("Error uploading to Doodapi:", error.message);
-      }
+        // Upload file concurrently to all services
+        const [
+          mixdropResponse,
+          doodapiResponse,
+          upStreamResponse,
+          vidHideResponse,
+          streamWishResponse,
+          youtubeData
+        ] = await Promise.all([
+          uploadToMixdrop(file),
+          uploadToDoodapi(file),
+          uploadToUpstream(file),
+          uploadToVidhide(file),
+          uploadToStreamwish(file),
+          searchYoutube(fileNameWithoutExt)
+        ]);
 
-      try {
-        const upStreamResponse = await uploadToUpstream(file);
-        responses.push({ service: "Upstream", result: upStreamResponse });
-      } catch (error) {
-        console.error("Error uploading to Upstream:", error.message);
-      }
+        // Store responses
+        responses.push(
+          { service: "Mixdrop", result: mixdropResponse },
+          { service: "Doodapi", result: doodapiResponse },
+          { service: "Upstream", result: upStreamResponse },
+          { service: "Vidhide", result: vidHideResponse },
+          { service: "StreamWish", result: streamWishResponse },
+          { service: "YouTube", result: youtubeData }
+        );
 
-      try {
-        const vidHideResponse = await uploadToVidhide(file);
-        responses.push({ service: "Vidhide", result: vidHideResponse });
-      } catch (error) {
-        console.error("Error uploading to Vidhide:", error.message);
-      }
-
-      try {
-        const streamWishResponse = await uploadToStreamwish(file);
-        responses.push({ service: "StreamWish", result: streamWishResponse });
-      } catch (error) {
-        console.error("Error uploading to StreamWish:", error.message);
-      }
-
-      const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, ""); // Remove the extension
-
-      try {
-        const youtubeData = await searchYoutube(fileNameWithoutExt);
-        responses.push({ service: "YouTube", result: youtubeData });
-
-        // Prepare data to add to your backend API
+        // Construct download links and iframe links
         const download_link1 = mixdropResponse?.result?.url;
         const iframe_link1 = mixdropResponse?.result?.embedurl;
         const download_link2 = doodapiResponse?.result?.[0]?.download_url;
@@ -306,37 +296,31 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
         const iframe_link5 = `https://playerwish.com/e/${streamWishResponse?.files?.[0]?.filecode}`;
         const splash_img = doodapiResponse?.result?.[0]?.splash_img;
 
+        // Prepare movie metadata
         const title = youtubeData.title || "Untitled Movie";
         const description = youtubeData.description;
         const duration = youtubeData.duration;
         const views = youtubeData.views;
         const thumbnailUrl = youtubeData.thumbnail;
 
-        // Download the thumbnail image from YouTube
-        const thumbnailPath = path.join(
-          __dirname,
-          "uploads",
-          `${fileNameWithoutExt}_thumbnail.jpg`
-        );
-        await downloadImage(thumbnailUrl, thumbnailPath);
+        // Download images
+        const thumbnailPath = path.join(__dirname, "uploads", `${fileNameWithoutExt}_thumbnail.jpg`);
+        const splashImgPath = path.join(__dirname, "uploads", `${fileNameWithoutExt}_splash.jpg`);
 
-        // Download the splash image from the provided URL
-        const splashImgPath = path.join(
-          __dirname,
-          "uploads",
-          `${fileNameWithoutExt}_splash.jpg`
-        );
-        await downloadImage(splash_img, splashImgPath);
+        await Promise.all([
+          downloadImage(thumbnailUrl, thumbnailPath),
+          downloadImage(splash_img, splashImgPath)
+        ]);
 
-        // Send the movie data to your backend API
+        // Send movie data to backend API
         const formData = new FormData();
         formData.append("title", title);
         formData.append("description", description);
         formData.append("uploadBy", "admin");
         formData.append("duration", duration);
         formData.append("views", views);
-        formData.append("thumbnail", fs.createReadStream(thumbnailPath)); // Send the image file
-        formData.append("images[]", fs.createReadStream(splashImgPath)); // Send the splash image
+        formData.append("thumbnail", fs.createReadStream(thumbnailPath));
+        formData.append("images[]", fs.createReadStream(splashImgPath));
         formData.append("download_link1", download_link1);
         formData.append("iframe_link1", iframe_link1);
         formData.append("download_link2", download_link2);
@@ -351,185 +335,27 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
         const addMovieResponse = await axios.post(
           "https://backend.videosroom.com/public/api/add-movie",
           formData,
-          {
-            headers: {
-              ...formData.getHeaders(),
-            },
-          }
+          { headers: { ...formData.getHeaders() } }
         );
+
         responses.push({ service: "Backend API", result: addMovieResponse.data });
+
+        // Cleanup local files after sending data
         fs.unlinkSync(thumbnailPath);
+        fs.unlinkSync(splashImgPath);
       } catch (error) {
-        console.error("Error processing YouTube data or Backend API:", error.message);
+        console.error("Error processing file:", error.message);
       }
-    }
+    }));
 
     res.json(responses);
   } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Error uploading files", message: error.message });
+    res.status(500).json({ error: "Error uploading files", message: error.message });
   } finally {
     files.forEach((file) => fs.unlinkSync(file.path));
   }
 });
 
-
-// app.post("/api/upload", upload.array("files"), async (req, res) => {
-//   const files = req.files.length === 1 ? req.files[0] : req.files
-//   const responses = []
-//   try {
-//     for (const file of files) {
-//       const mixdropResponse = await uploadToMixdrop(file)
-//       responses.push({ service: "Mixdrop", result: mixdropResponse })
-
-//       const doodapiResponse = await uploadToDoodapi(file)
-//       responses.push({ service: "Doodapi", result: doodapiResponse })
-
-//       const upStreamResponse = await uploadToUpstream(file)      
-//       responses.push({ service: "Upstream", result: upStreamResponse })
-
-//       const vidHideResponse = await uploadToVidhide(file)      
-//       responses.push({ service: "VideHide", result: vidHideResponse })
-
-//       const streamWishResponse = await uploadToStreamwish(file)      
-//       responses.push({ service: "StreamWish", result: streamWishResponse })
-
-//       const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "") // Remove the extension
-//       const youtubeData = await searchYoutube(fileNameWithoutExt)
-//       responses.push({ service: "YouTube", result: youtubeData })
-
-//       // Prepare data to add to your backend API
-//       const download_link1 = mixdropResponse?.result?.url
-//       const iframe_link1 = mixdropResponse?.result?.embedurl
-//       const download_link2 = doodapiResponse?.result[0]?.download_url
-//       const iframe_link2 = doodapiResponse?.result?.[0]?.protected_embed
-//       const download_link3 = `https://upstream.to/${upStreamResponse?.files?.[0]?.filecode}`
-//       const iframe_link3 = `https://upstream.to/${upStreamResponse?.files?.[0]?.filecode}`
-//       const download_link4 = `https://vidhideplus.com/download/${vidHideResponse?.files?.[0]?.filecode}`
-//       const iframe_link4 = `https://vidhideplus.com/embed/${vidHideResponse?.files?.[0]?.filecode}`
-//       const download_link5 = `https://playerwish.com/f/${streamWishResponse?.files?.[0]?.filecode}`
-//       const iframe_link5 = `https://playerwish.com/e/${streamWishResponse?.files?.[0]?.filecode}`
-//       const splash_img = doodapiResponse?.result?.[0]?.splash_img
-      
-//       const title = youtubeData.title || "Untitled Movie"
-//       const description = youtubeData.description
-//       const duration = youtubeData.duration
-//       const views = youtubeData.views
-//       const thumbnailUrl = youtubeData.thumbnail
-//       // Download the thumbnail image from YouTube
-//       const thumbnailPath = path.join(
-//         __dirname,
-//         "uploads",
-//         `${fileNameWithoutExt}_thumbnail.jpg`
-//       )
-//       await downloadImage(thumbnailUrl, thumbnailPath)
-//       // Download the splash image from the provided URL
-//       const splashImgPath = path.join(
-//         __dirname,
-//         "uploads",
-//         `${fileNameWithoutExt}_splash.jpg`
-//       );
-//       await downloadImage(splash_img, splashImgPath);
-
-//       // Send the movie data to your backend API
-//       const formData = new FormData()
-//       formData.append("title", title)
-//       formData.append("description", description)
-//       formData.append("uploadBy", "admin")
-//       formData.append("duration", duration)
-//       formData.append("views", views)
-//       formData.append("thumbnail", fs.createReadStream(thumbnailPath)) // Send the image file
-//       formData.append("images[]", fs.createReadStream(splashImgPath)); // Send the splash image
-//       formData.append("download_link1", download_link1)
-//       formData.append("iframe_link1", iframe_link1)
-//       formData.append("download_link2", download_link2)
-//       formData.append("iframe_link2", iframe_link2)
-//       formData.append("download_link3", download_link3)
-//       formData.append("iframe_link3", iframe_link3)
-//       formData.append("download_link4", download_link4)
-//       formData.append("iframe_link4", iframe_link4)
-//       formData.append("download_link5", download_link5)
-//       formData.append("iframe_link5", iframe_link5)
-
-//       // Send the movie data to your backend API
-//       const addMovieResponse = await axios.post(
-//         "https://backend.videosroom.com/public/api/add-movie",
-//         formData,
-//         {
-//           headers: {
-//             ...formData.getHeaders(),
-//           },
-//         }
-//       )
-//       responses.push({ service: "Backend API", result: addMovieResponse.data })
-//       fs.unlinkSync(thumbnailPath)
-//     }
-    
-//     res.json(responses)
-//   } catch (error) {
-//     res
-//       .status(500)
-//       .json({ error: "Error uploading files", message: error.message })
-//   } finally {
-//     files.forEach((file) => fs.unlinkSync(file.path))
-//   }
-// })
-
-// ytsr('Sikandar New 2024 Released Full Action Movie | Allu Arjun,Rashmika Mandanna,Sathyaraj #hindidubbed', { safeSearch: true}).then(result => {
-//   let movie = result.items[0];
-//   console.log('Name: ' + movie.name);
-//   console.log('Duration: ' + movie.thumbnail);
-// });
-
-// async function scrapeMovieDetails(movieTitle) {
-//   const formattedTitle = movieTitle.replace(/\s+/g, '+');
-//   const searchUrl = `https://www.watch-movies.com.pk/?s=${formattedTitle}`;
-
-//   try {
-//     const { data } = await axios.get(searchUrl);
-//     const $ = cheerio.load(data);
-//     const results = $('a.wpp-post-title');
-//     let matchedMovie = null;
-
-//     results.each((index, element) => {
-//       const title = $(element).attr('title')?.trim().toLowerCase();
-//       const searchTitle = movieTitle.trim().toLowerCase();
-
-//       // Check if the title matches
-//       if (title && title.includes(searchTitle)) {
-//         console.log('Match found');
-
-//         // Get the movie URL
-//         const movieUrl = $(element).attr('href');
-
-//         // Find the parent `li` and then the `img` tag to get the thumbnail
-//         const thumbnailElement = $(element).closest('li').find('img');
-//         const imageUrl = thumbnailElement.attr('data-src') || 'Image not found';
-
-//         matchedMovie = {
-//           title,
-//           movieUrl,
-//           imageUrl,
-//         };
-
-//         return false; // Stop iteration once a match is found
-//       }
-//     });
-
-//     if (matchedMovie) {
-//       console.log('Matched Movie Data:', matchedMovie);
-//       return matchedMovie;
-//     } else {
-//       console.log('No matching movie found.');
-//       return null;
-//     }
-//   } catch (error) {
-//     console.error('Error scraping movie details:', error.message);
-//     return null;
-//   }
-// }
-// scrapeMovieDetails('jatt and jul')
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
