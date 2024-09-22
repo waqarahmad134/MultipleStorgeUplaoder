@@ -234,6 +234,7 @@ const searchYoutube = async (query) => {
   try {
     const searchResults = await ytsr(query, { safeSearch: true })
     const movie = searchResults.items[0]
+    console.log("🚀 ~ searchYoutube ~ movie:", movie)
     return {
       title: movie?.name || "No title found",
       thumbnail: movie?.thumbnail || "No thumbnail available",
@@ -254,9 +255,7 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
   try {
     await Promise.all(files.map(async (file) => {
       const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "");
-
       try {
-        // Upload file concurrently to all services
         const [
           mixdropResponse,
           doodapiResponse,
@@ -282,8 +281,7 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
           { service: "StreamWish", result: streamWishResponse },
           { service: "YouTube", result: youtubeData }
         );
-
-        // Construct download links and iframe links
+      
         const download_link1 = mixdropResponse?.result?.url;
         const iframe_link1 = mixdropResponse?.result?.embedurl;
         const download_link2 = doodapiResponse?.result?.[0]?.download_url;
@@ -296,6 +294,11 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
         const iframe_link5 = `https://playerwish.com/e/${streamWishResponse?.files?.[0]?.filecode}`;
         const splash_img = doodapiResponse?.result?.[0]?.splash_img;
 
+
+        console.log(mixdropResponse)
+        console.log(doodapiResponse)
+        console.log(upStreamResponse)
+        console.log(youtubeData)
         // Prepare movie metadata
         const title = youtubeData.title || "Untitled Movie";
         const description = youtubeData.description;
@@ -339,8 +342,6 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
         );
 
         responses.push({ service: "Backend API", result: addMovieResponse.data });
-
-        // Cleanup local files after sending data
         fs.unlinkSync(thumbnailPath);
         fs.unlinkSync(splashImgPath);
       } catch (error) {

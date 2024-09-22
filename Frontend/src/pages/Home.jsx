@@ -6,6 +6,8 @@ export default function Home() {
   const [selectedFiles, setSelectedFiles] = useState(null)
   const [uploadComplete, setUploadComplete] = useState([])
   const [loader, setLoader] = useState(false)
+  const [errorData, setErrorData] = useState(null)
+  console.log("🚀 ~ Home ~ errorData:", errorData)
 
   const handleFileChange = (e) => {
     setSelectedFiles(e.target.files)
@@ -33,13 +35,30 @@ export default function Home() {
 
         setUploadComplete(Array.from(selectedFiles).map((file) => file.name))
         setLoader(false)
-        console.log("Upload success:", response.data)
+        console.log(response.data)
+        const backendApiResults = response.data
+          .filter((item) => item.service === "Backend API") // Filter for 'Backend API' service
+          .map((item) => item.result) // Extract the 'result' key
+
+        setErrorData(backendApiResults)
       } catch (error) {
         console.error("Error uploading files:", error)
+        setErrorData(error)
         setLoader(false)
       }
     }
   }
+
+  const categories = [
+    "Movie",
+    "Punjabi",
+    "English",
+    "Netflix",
+    "Series",
+    "Drama",
+    "Cartoon",
+    "Songs",
+  ]
 
   return (
     <div className="bg-slate-200 h-screen">
@@ -52,6 +71,12 @@ export default function Home() {
           <li>Mixdrop5 </li>
           <li>Mixdrop6 </li>
         </ul>
+      </div>
+      <div className="uploader-container">
+        <div className="border border-gray-300 p-3">
+          {errorData?.[0]?.error}
+          {errorData?.[0]?.message}
+        </div>
       </div>
       <div className="uploader-container">
         <div className="uploader-left">
@@ -75,6 +100,20 @@ export default function Home() {
                 >
                   Upload
                 </button>
+                {categories?.map((data, index) => (
+                  <div className="flex items-center">
+                    <input
+                      key={index}
+                      id={data}
+                      type="radio"
+                      name="category"
+                      className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 focus:ring-blue-500"
+                    />
+                    <label htmlFor={data} className="ms-2 text-sm font-medium text-gray-900 dark:text-gray-300">
+                      {data}
+                    </label>
+                  </div>
+                ))}
               </form>
             </div>
           )}
