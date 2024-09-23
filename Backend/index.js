@@ -28,6 +28,7 @@ const downloadImage = async (url, dest) => {
 
 // Function to handle Mixdrop API upload
 const uploadToMixdrop = async (file) => {
+  console.log("Mix Drop Start")
   try {
     const formData = new FormData()
     formData.append("email", "videosroomofficial@gmail.com")
@@ -39,6 +40,7 @@ const uploadToMixdrop = async (file) => {
         ...formData.getHeaders(),
       },
     })
+    console.log("Mix Drop API HIT")
     return response.data
   } catch (error) {
     throw new Error(`Mixdrop upload failed: ${error.message}`)
@@ -46,6 +48,7 @@ const uploadToMixdrop = async (file) => {
 }
 
 const uploadToDoodapi = async (files) => {
+  console.log("Doodli Start")
   try {
     // Step 1: Get the server URL
     const serverResponse = await axios.get(
@@ -84,6 +87,7 @@ const uploadToDoodapi = async (files) => {
         },
       }
     )
+    console.log("Doodli API hit")
     return response.data
   } catch (error) {
     console.error(
@@ -94,6 +98,7 @@ const uploadToDoodapi = async (files) => {
 }
 
 const uploadToUpstream = async (files) => {
+  console.log("Upstream Start")
   try {
     const serverResponse = await axios.get(
       "https://upstream.to/api/upload/server?key=64637qwgzhzja5yhol5xk"
@@ -131,6 +136,7 @@ const uploadToUpstream = async (files) => {
         },
       }
     );
+    console.log("Upstream API Hit")
     return response.data; 
   } catch (error) {
     console.error(
@@ -143,6 +149,7 @@ const uploadToUpstream = async (files) => {
 };
 
 const uploadToVidhide = async (files) => {
+  console.log("Vidhide Start")
   try {
     // Step 1: Get the server URL from Vidhide API
     const serverResponse = await axios.get(
@@ -173,7 +180,7 @@ const uploadToVidhide = async (files) => {
         ...formData.getHeaders(),
       },
     });
-
+    console.log("Vidhide API Hit")
     return response.data; // Return the response data
   } catch (error) {
     console.error(
@@ -186,6 +193,7 @@ const uploadToVidhide = async (files) => {
 };
 
 const uploadToStreamwish = async (files) => {
+  console.log("Stream Wish Start")
   try {
     // Step 1: Get the server URL from Streamwish API
     const serverResponse = await axios.get(
@@ -217,7 +225,7 @@ const uploadToStreamwish = async (files) => {
         ...formData.getHeaders(),
       },
     });
-
+    console.log("Stream Wish API Hit")
     return response.data; // Return the response data
   } catch (error) {
     console.error(
@@ -231,10 +239,10 @@ const uploadToStreamwish = async (files) => {
 
 
 const searchYoutube = async (query) => {
+  console.log("Youtube Start")
   try {
     const searchResults = await ytsr(query, { safeSearch: true })
     const movie = searchResults.items[0]
-    console.log("🚀 ~ searchYoutube ~ movie:", movie)
     return {
       title: movie?.name || "No title found",
       thumbnail: movie?.thumbnail || "No thumbnail available",
