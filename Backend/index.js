@@ -26,47 +26,7 @@ const downloadImage = async (url, dest) => {
   })
 }
 
-const uploadToDoodapi = async (files) => {
-  try {
-    const serverResponse = await axios.get(
-      "https://doodapi.com/api/upload/server?key=434272nxlae3r22329ia88"
-    )
-    const uploadUrl = serverResponse.data.result
-    const formData = new FormData()
-    formData.append("api_key", "434272nxlae3r22329ia88")
-    if (Array.isArray(files)) {
-      files.forEach((file) => {
-        formData.append(
-          "file",
-          fs.createReadStream(file.path),
-          file.originalname
-        )
-      })
-    } else {
-      formData.append(
-        "file",
-        fs.createReadStream(files.path),
-        files.originalname
-      )
-    }
-    const response = await axios.post(
-      `${uploadUrl}?api_key=434272nxlae3r22329ia88`,
-      formData,
-      {
-        headers: {
-          ...formData.getHeaders(),
-        },
-      }
-    )
-    console.log("Doodli API hit", response)
-    return response.data
-  } catch (error) {
-    console.error(
-      `Error: Doodapi upload failed: ${error.response ? error.response.data : error.message}`
-    )
-    throw new Error(`Doodapi upload failed: ${error.message}`)
-  }
-}
+
 
 const searchYoutube = async (query) => {
   try {
@@ -85,8 +45,10 @@ const searchYoutube = async (query) => {
   }
 }
 
-app.post("/api/upload", upload.array("files"), async (req, res) => {
-  const files = req.files.length === 1 ? [req.files[0]] : req.files
+app.post("/api/upload", async (req, res) => {
+
+  const allMoviesResponse = await axios.get('https://backend.videosroom.com/public/api/all-movies');
+  console.log("🚀 ~ app.post ~ allMoviesResponse:", allMoviesResponse)
   const responses = []
 
   try {
@@ -94,16 +56,13 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
       files.map(async (file) => {
         const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "")
         try {
-          const [doodapiResponse, youtubeData] = await Promise.all([
-            uploadToDoodapi(file),
+          const [ youtubeData] = await Promise.all([
             searchYoutube(fileNameWithoutExt),
           ])
           responses.push(
-            { service: "Doodapi", result: doodapiResponse },
             { service: "YouTube", result: youtubeData }
           )
-          const download_link2 = doodapiResponse?.result?.[0]?.download_url
-          const iframe_link2 = doodapiResponse?.result?.[0]?.protected_embed
+          
           const splash_img = doodapiResponse?.result?.[0]?.splash_img
 
           const title = youtubeData.title || "Untitled Movie"
@@ -139,8 +98,7 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
           formData.append("thumbnail", fs.createReadStream(thumbnailPath))
           formData.append("images[]", fs.createReadStream(splashImgPath))
 
-          formData.append("download_link2", download_link2)
-          formData.append("iframe_link2", iframe_link2)
+          
           
           const addMovieResponse = await axios.post(
             "https://backend.videosroom.com/public/api/add-movie",
