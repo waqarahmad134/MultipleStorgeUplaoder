@@ -8,43 +8,29 @@ export default function Home() {
   const [loader, setLoader] = useState(false); // To show loading state
   const [errorData, setErrorData] = useState(null); // To capture and display errors
 
-  // Function to parse the textarea input and extract movie title and URL pairs
   const parseMovieUrls = (text) => {
-    // This regular expression matches comments (movie titles) and URLs
     const regex = /<!--(.*?)-->\s*(https?:\/\/[^\s]+)/g;
     let matches;
     const result = [];
-
     while ((matches = regex.exec(text)) !== null) {
-      const title = matches[1].trim(); // Movie title (inside comment)
-      const url = matches[2].trim();   // URL
+      const title = matches[1].trim();
+      const url = matches[2].trim();
       result.push({ title, url });
     }
-
-    console.log(result)
     return result;
   };
-
-  // Handle form submit
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoader(true);
     setErrorData(null);
     setUploadComplete([]);
-
     try {
-      // Parse the movie URLs entered by the user
       const parsedMovies = parseMovieUrls(movieUrls);
-
-      // POST request to your backend API with the parsed movie data
       const response = await axios.post("/api/upload", { movies: parsedMovies });
-      console.log("🚀 ~ handleSubmit ~ response:", response)
-
-      // Handle success response
+      console.log("🚀 ~ handleSubmit ~ response:", response?.data)
       setUploadComplete(response.data);
       setLoader(false);
     } catch (error) {
-      // Handle error response
       setErrorData(error.response?.data || "Something went wrong");
       setLoader(false);
     }
@@ -55,7 +41,6 @@ export default function Home() {
       <form onSubmit={handleSubmit} className="p-6 bg-white shadow-md rounded-md w-full max-w-lg">
         <h1 className="text-2xl font-semibold mb-4">Submit Movie URLs</h1>
 
-        {/* Textarea for URLs */}
         <div className="mb-4">
           <label className="block text-gray-700 text-sm font-bold mb-2" htmlFor="movieUrls">
             Movie URLs (in the format of a comment and URL):

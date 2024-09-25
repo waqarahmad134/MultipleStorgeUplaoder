@@ -34,9 +34,9 @@ const searchYoutube = async (query) => {
     return {
       title: movie?.name || "No title found",
       thumbnail: movie?.thumbnail || "No thumbnail available",
-      description: movie?.description || "No description available",
-      duration: movie?.duration || "No duration available",
-      views: movie?.views || "No duration available",
+      description: movie?.description,
+      duration: movie?.duration || "01:32:00",
+      views: movie?.views || "0",
     }
   } catch (error) {
     console.error(`YouTube search failed: ${error.message}`)
@@ -46,7 +46,7 @@ const searchYoutube = async (query) => {
 
 // Utility function to extract the title from the URL
 const extractTitleFromUrl = (url) => {
-  console.log(url , "waqar")
+  console.log(url, "waqar")
   const match = url?.title
   return match
     ? match[1].replace(/\.(mp4|avi|mkv|mov|flv|wmv|webm)$/, "").trim()
@@ -54,100 +54,64 @@ const extractTitleFromUrl = (url) => {
 }
 
 app.post("/api/upload", async (req, res) => {
-  const {movies}  = req.body; // Expecting movieUrls array from the frontend
+  const { movies } = req.body
   if (!movies || !Array.isArray(movies)) {
-    return res.status(400).json({ error: "Invalid or missing movieUrls array" });
+    return res.status(400).json({ error: "Invalid or missing movieUrls array" })
   }
-
-  // Extract titles from the provided URLs
-  // const movieTitles = movies.map((url) => extractTitleFromUrl(url));
-  // console.log("🚀 ~ app.post ~ movieTitles:", movieTitles);
-
   try {
-    // Fetch all movies from the backend
     const allMoviesResponse = await axios.get(
       "https://backend.videosroom.com/public/api/all-movies"
-    );
-    const allMovies = allMoviesResponse?.data?.data;
-    const responses = [];
-
-    // Process each movie title in parallel
+    )
+    const allMovies = allMoviesResponse?.data?.data || []
+    const responses = []
     await Promise.all(
-      movies.map(async (movieTitle) => {
-        // Match the title with backend movies data
-        const matchedMovie = allMovies.find(
-          (movie) => movie.title === movieTitle?.title
-        );
+      movies.map(async (movie) => {
+        const matchedMovie = allMovies.find((m) => m.title === movie.title)
+        console.log("🚀 ~ movies.map ~ matchedMovie:", matchedMovie)
 
         if (!matchedMovie) {
-          console.log(`No match found for: ${movies}`);
-          return;
+          console.log(`No match found for: ${movie.title}`)
+          
         }
 
-        const youtubeData = await searchYoutube(movies?.title);
+        const youtubeData = await searchYoutube(movie.title)
         if (!youtubeData) {
-          console.log(`No YouTube data found for: ${movieTitle}`);
-          return;
+          console.log(`No YouTube data found for: ${movie.title}`)
         }
 
-        const { title, description, duration, views, thumbnail } = youtubeData;
-        const splash_img = matchedMovie?.splash_img; // Assuming splash_img comes from matched movie
-
-        // Define paths for saving the images locally
-        const thumbnailPath = path.join(
-          __dirname,
-          "uploads",
-          `${movieTitle?.replace(/\s/g, "_")}_thumbnail.jpg`
-        );
-        const splashImgPath = path.join(
-          __dirname,
-          "uploads",
-          `${movieTitle.replace(/\s/g, "_")}_splash.jpg`
-        );
-
-        // Download images (thumbnail and splash)
-        await Promise.all([
-          downloadImage(thumbnail, thumbnailPath),
-          downloadImage(splash_img, splashImgPath),
-        ]);
-
-        // Prepare form data to send to the backend API
-        const formData = new FormData();
-        formData.append("title", title || "Untitled Movie");
-        formData.append("description", description);
-        formData.append("uploadBy", "admin");
-        formData.append("duration", duration);
-        formData.append("views", views);
-        formData.append("thumbnail", fs.createReadStream(thumbnailPath));
-        formData.append("images[]", fs.createReadStream(splashImgPath));
+        const { title, description, duration, views, thumbnail } = youtubeData
+        const formData = new FormData()
+        formData.append("title", title || "Untitled Movie")
+        formData.append("description", description || title)
+        formData.append("uploadBy", "admin")
+        formData.append("duration", duration)
+        formData.append("views", views || "0")
 
         // Send movie data to backend API
         const addMovieResponse = await axios.post(
           "https://backend.videosroom.com/public/api/add-movie",
           formData,
           { headers: { ...formData.getHeaders() } }
-        );
+        )
 
         responses.push({
           service: "Backend API",
           result: addMovieResponse.data,
-        });
-
-        // Clean up uploaded files
-        fs.unlinkSync(thumbnailPath);
-        fs.unlinkSync(splashImgPath);
+        })
       })
-    );
-
-    // Send response after all processing
-    res.json(responses);
+    )
+    res.json(responses)
   } catch (error) {
-    console.error("Error uploading files:", error.message);
-    res.status(500).json({ error: "Error uploading files", message: error.message });
+    console.error("Error uploading files:", error.message)
+    res
+      .status(500)
+      .json({ error: "Error uploading files", message: error.message })
   }
-});
+})
 
-
+const searchResults = await ytsr("Pushpa and his way of working _ Pushpa_ The rise _ AlluArjun's best dialogue _ Amazon Prime Video (1080p, h264)", { safeSearch: true })
+const movie = searchResults
+console.log("🚀 ~ movie:", movie)
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
