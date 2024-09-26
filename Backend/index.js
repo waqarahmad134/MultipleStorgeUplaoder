@@ -79,6 +79,23 @@ app.post("/api/upload", async (req, res) => {
 
     await Promise.all(
       movies.map(async (movie) => {
+        const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=20445huibnrwap8ww1pp4&url=${movie?.url}`;
+        try {
+          const streamWishResponse = await axios.get(streamWishUrl);
+            responses.push({
+              status: streamWishResponse?.data?.status,
+              error: streamWishResponse?.data?.msg,
+              data: streamWishResponse?.data?.result?.filecode,
+            });      
+        } catch (streamWishError) {
+          console.error(`StreamWish upload error for: ${movie?.title}`, streamWishError.message);
+          responses.push({
+            status: streamWishResponse?.data?.status,
+            error: streamWishResponse?.data?.msg,
+            data: streamWishResponse?.data?.result?.filecode,
+          });
+        }
+        
         const matchedMovie = allMovies.find((m) => {
           const titleA = normalizeTitle(m?.title)
           const titleB = normalizeTitle(movie?.title)
