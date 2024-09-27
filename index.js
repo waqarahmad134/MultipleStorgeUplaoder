@@ -70,6 +70,18 @@ const normalizeTitle = (title) => {
     .trim();
 };
 
+const uploadToStreamwish = async (movie) => {
+  try {
+    const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=20445huibnrwap8ww1pp4&url=${movie?.url}`;
+    const streamWishResponse = await axios.get(streamWishUrl);
+    return streamWishResponse?.data; // Returning the entire response data
+  } catch (streamWishError) {
+    console.error(`StreamWish upload error for: ${movie?.title}`, streamWishError.message);
+    throw new Error(`StreamWish upload failed for: ${movie?.title}`);
+  }
+};
+
+
 app.post("/api/upload", async (req, res) => {
   const { movies } = req.body;
   if (!movies || !Array.isArray(movies)) {
