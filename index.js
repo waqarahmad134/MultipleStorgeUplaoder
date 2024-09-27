@@ -62,14 +62,6 @@ const searchYoutube = async (query) => {
   }
 };
 
-// Utility function to extract the title from the URL
-const extractTitleFromUrl = (url) => {
-  console.log(url, "waqar");
-  const match = url?.title;
-  return match
-    ? match[1].replace(/\.(mp4|avi|mkv|mov|flv|wmv|webm)$/, "").trim()
-    : "Untitled";
-};
 
 const normalizeTitle = (title) => {
   return title
@@ -130,7 +122,6 @@ app.post("/api/upload", async (req, res) => {
             message: "Match Found",
             data: movie?.title,
           });
-          return; // Return early to skip the upload for this movie
         }
 
         const youtubeData = await searchYoutube(movie.title);
@@ -151,6 +142,7 @@ app.post("/api/upload", async (req, res) => {
 
         const thumbnailDir = path.join(__dirname, "thumbnails");
 
+        
         // Ensure the directory exists before attempting to save the file
         if (!fs.existsSync(thumbnailDir)) {
           try {
@@ -180,12 +172,23 @@ app.post("/api/upload", async (req, res) => {
           );
         }
 
+        const download_link1 = movie?.url;
+        const iframe_link1 = movie?.url;
+
+        const download_link5 = `https://playerwish.com/f/${streamWishResponse?.data?.result?.filecode}`;
+        const iframe_link5 = `https://playerwish.com/e/${streamWishResponse?.data?.result?.filecode}`;
+
         const formData = new FormData();
         formData.append("title", title || "Untitled Movie");
         formData.append("description", description || title);
         formData.append("uploadBy", "admin");
         formData.append("duration", duration);
         formData.append("views", views || "0");
+        formData.append("download_link1", download_link1);
+        formData.append("iframe_link1", iframe_link1);
+        
+        formData.append("download_link5", download_link5);
+        formData.append("iframe_link5", iframe_link5);
 
         // Append the thumbnail to form data
         formData.append("thumbnail", fs.createReadStream(thumbnailPath)); // Send the downloaded thumbnail
