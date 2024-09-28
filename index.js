@@ -85,7 +85,7 @@ const uploadToStreamwish = async (movie) => {
 
 const uploadToDoodli = async (movie) => {
   try {
-    const doodliUrl = `https://doodapi.com/api/upload/url?key=434272nxlae3r22329ia88&url=${movie?.url}`
+    const doodliUrl = `https://doodapi.com/api/upload/url?key=455613j9vxgg2me3lk6wt7&url=${movie}`
     const doodliResponse = await axios.get(doodliUrl)
     return doodliResponse?.data
   } catch (Error) {
@@ -96,7 +96,7 @@ const uploadToDoodli = async (movie) => {
 
 const uploadToUpstream = async (movie) => {
   try {
-    const upstreamUrl = `https://upstream.to/api/account/info?key=64637qwgzhzja5yhol5xk&url=${movie?.url}`
+    const upstreamUrl = `https://upstream.to/api/upload/url?key=64637qwgzhzja5yhol5xk&url=${movie}`
     const upstreamResponse = await axios.get(upstreamUrl)
     return upstreamResponse?.data
   } catch (Error) {
@@ -107,12 +107,26 @@ const uploadToUpstream = async (movie) => {
 
 const uploadToVidhide = async (movie) => {
   try {
-    const vidHideUrl = `https://vidhideapi.com/api/upload/url?key=31076w3lc27ihj621zyb7&url=${movie?.url}`
+    const vidHideUrl = `https://vidhideapi.com/api/upload/url?key=31076w3lc27ihj621zyb7&url=${movie}`
     const vidHideResponse = await axios.get(vidHideUrl)
     return vidHideResponse?.data
   } catch (Error) {
     console.error(`Vidhide upload error for: ${movie?.title}`, Error.message)
     throw new Error(`Vidhide upload failed for: ${movie?.title}`)
+  }
+}
+
+const uploadStreamTape = async (movie) => {
+  try {
+    const streamTapeUrl = `https://api.streamtape.com/remotedl/add?login=18363eb8d9f015d97121&key=d3362LPrbVckYkd&url=${movie}`
+    const streamTapeResponse = await axios.get(streamTapeUrl)
+    return streamTapeResponse?.data
+  } catch (Error) {
+    console.error(
+      `Stream Tape upload error for: ${movie?.title}`,
+      Error.message
+    )
+    throw new Error(`Stream Tape upload failed for: ${movie?.title}`)
   }
 }
 
@@ -149,8 +163,13 @@ app.post("/api/upload", async (req, res) => {
           data: movie?.title,
         })
       }
-      
-      let streamWishData, doodliData, upStreamData, vidHideData, youtubeData
+
+      let streamWishData,
+        doodliData,
+        upStreamData,
+        vidHideData,
+        streamTapeData,
+        youtubeData
 
       try {
         streamWishData = await uploadToStreamwish(movie.url) // Assuming movie has a file property
@@ -159,10 +178,21 @@ app.post("/api/upload", async (req, res) => {
         console.error("Error uploading to StreamWish:", error.message)
       }
 
+      try {
+        streamTapeData = await uploadStreamTape(movie.url) // Assuming movie has a file property
+        responses.push({ service: "StreamTape", result: streamTapeData })
+      } catch (error) {
+        console.error("Error uploading to Stream Tape:", error.message)
+      }
+
       // Upload to Doodli
       try {
         doodliData = await uploadToDoodli(movie.url)
-        responses.push({ service: "Doodapi", result: doodliData, messgae : doodliData?.msg })
+        responses.push({
+          service: "Doodapi",
+          result: doodliData,
+          messgae: doodliData?.msg,
+        })
       } catch (error) {
         console.error("Error uploading to Doodapi:", error.message)
       }
@@ -224,14 +254,16 @@ app.post("/api/upload", async (req, res) => {
       // Prepare download and iframe links
       const download_link1 = movie?.url
       const iframe_link1 = movie?.url
-      const download_link2 = `https://doodli.com/f/${doodliData?.result?.filecode}`
-      const iframe_link2 = `https://doodli.com/e/${doodliData?.result?.filecode}`
-      const download_link3 = `https://doodli.com/f/${doodliData?.result?.filecode}`
-      const iframe_link3 = `https://doodli.com/e/${doodliData?.result?.filecode}`
-      const download_link4 = `https://doodli.com/f/${doodliData?.result?.filecode}`
-      const iframe_link4 = `https://doodli.com/e/${doodliData?.result?.filecode}`
+      const download_link2 = `https://dood.li/d/${doodliData?.result?.filecode}`
+      const iframe_link2 = `https://dood.li/e/${doodliData?.result?.filecode}`
+      const download_link3 = `https://upstream.to/${upStreamData?.result?.filecode}`
+      const iframe_link3 = `https://upstream.to/embed-${upStreamData?.result?.filecode}.html`
+      const download_link4 = `https://vidhideplus.com/file/${vidHideData?.result?.filecode}`
+      const iframe_link4 = `https://vidhideplus.com/embed/${vidHideData?.result?.filecode}`
       const download_link5 = `https://playerwish.com/f/${streamWishData?.result?.filecode}`
       const iframe_link5 = `https://playerwish.com/e/${streamWishData?.result?.filecode}`
+      const download_link6 = `https://streamtape.com/v/${streamTapeData?.result?.id}`
+      const iframe_link6 = `https://streamtape.com/e/${streamTapeData?.result?.id}`
 
       // Prepare form data for backend API
       const formData = new FormData()
@@ -250,6 +282,8 @@ app.post("/api/upload", async (req, res) => {
       formData.append("iframe_link4", iframe_link4)
       formData.append("download_link5", download_link5)
       formData.append("iframe_link5", iframe_link5)
+      formData.append("download_link6", download_link6)
+      formData.append("iframe_link6", iframe_link6)
       formData.append("thumbnail", fs.createReadStream(thumbnailPath)) // Send the downloaded thumbnail
 
       // Send movie data to backend API
