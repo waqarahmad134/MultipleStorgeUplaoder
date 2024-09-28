@@ -74,10 +74,21 @@ const uploadToStreamwish = async (movie) => {
   try {
     const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=20445huibnrwap8ww1pp4&url=${movie?.url}`;
     const streamWishResponse = await axios.get(streamWishUrl);
-    return streamWishResponse?.data; // Returning the entire response data
+    return streamWishResponse?.data;
   } catch (streamWishError) {
     console.error(`StreamWish upload error for: ${movie?.title}`, streamWishError.message);
     throw new Error(`StreamWish upload failed for: ${movie?.title}`);
+  }
+};
+
+const uploadToDoodli = async (movie) => {
+  try {
+    const doodliUrl = `https://doodapi.com/api/upload/url?key=434272nxlae3r22329ia88&url=${movie?.url}`;
+    const doodliResponse = await axios.get(doodliUrl);
+    return doodliResponse?.data;
+  } catch (Error) {
+    console.error(`Doodli upload error for: ${movie?.title}`, Error.message);
+    throw new Error(`Doodli upload failed for: ${movie?.title}`);
   }
 };
 
@@ -97,24 +108,13 @@ app.post("/api/upload", async (req, res) => {
 
     await Promise.all(
       movies.map(async (movie) => {
-        const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=20445huibnrwap8ww1pp4&url=${movie?.url}`;
-        try {
-          const streamWishResponse = await axios.get(streamWishUrl);
-          responses.push({
-            status: streamWishResponse?.data?.status,
-            error: streamWishResponse?.data?.msg,
-            data: streamWishResponse?.data?.result?.filecode,
-          });
-        } catch (streamWishError) {
-          console.error(
-            `StreamWish upload error for: ${movie?.title}`,
-            streamWishError.message
-          );
-          responses.push({
-            status: "error",
-            error: `StreamWish upload failed for: ${movie?.title}`,
-          });
-        }
+
+        // Destructure the response using Promise.all
+        const [streamWishData , doodliData] =  await Promise.all([
+          uploadToStreamwish(movie), 
+          uploadToDoodli(movie)
+        ]);
+        console.log(doodliData , "streamWishData")
 
         const matchedMovie = allMovies.find((m) => {
           const titleA = normalizeTitle(m?.title);
@@ -144,17 +144,12 @@ app.post("/api/upload", async (req, res) => {
             error: "No YouTube data found",
             data: movie.title,
           });
-          return; // Return early if no YouTube data found
         }
 
         const { title, description, duration, views, thumbnail } = youtubeData;
-
-        // Set thumbnail to default if it's not valid
         const thumbnailUrl = thumbnail || defaultThumbnailUrl;
-
         const thumbnailDir = path.join(__dirname, "thumbnails");
 
-        
         // Ensure the directory exists before attempting to save the file
         if (!fs.existsSync(thumbnailDir)) {
           try {
@@ -174,7 +169,6 @@ app.post("/api/upload", async (req, res) => {
 
         const thumbnailPath = path.join(thumbnailDir, `${sanitizedTitle}.jpg`);
 
-        // Attempt to download the thumbnail
         try {
           await downloadImage(thumbnailUrl, thumbnailPath);
         } catch (downloadError) {
@@ -186,9 +180,10 @@ app.post("/api/upload", async (req, res) => {
 
         const download_link1 = movie?.url;
         const iframe_link1 = movie?.url;
-
-        const download_link5 = `https://playerwish.com/f/${streamWishResponse?.data?.result?.filecode}`;
-        const iframe_link5 = `https://playerwish.com/e/${streamWishResponse?.data?.result?.filecode}`;
+        const download_link2 = `https://doodli.com/f/${doodliData?.result?.filecode}`;
+        const iframe_link2 = `https://doodli.com/e/${doodliData?.result?.filecode}`;
+        const download_link5 = `https://playerwish.com/f/${streamWishData?.result?.filecode}`;
+        const iframe_link5 = `https://playerwish.com/e/${streamWishData?.result?.filecode}`;
 
         const formData = new FormData();
         formData.append("title", title || "Untitled Movie");
@@ -198,6 +193,8 @@ app.post("/api/upload", async (req, res) => {
         formData.append("views", views || "0");
         formData.append("download_link1", download_link1);
         formData.append("iframe_link1", iframe_link1);
+        formData.append("download_link2", download_link2);
+        formData.append("iframe_link2", iframe_link2);
         
         formData.append("download_link5", download_link5);
         formData.append("iframe_link5", iframe_link5);
@@ -211,6 +208,8 @@ app.post("/api/upload", async (req, res) => {
           formData,
           { headers: { ...formData.getHeaders() } }
         );
+
+        console.log(addMovieResponse , "addMovieResponse")
 
         responses.push({
           service: "Backend API",
