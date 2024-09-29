@@ -7,7 +7,7 @@ const FormData = require("form-data")
 const ytsr = require("@distube/ytsr")
 const cheerio = require("cheerio")
 const cors = require("cors")
-const Youtube = require('youtubei.js');  // Correct way to import
+const Youtube = require("youtubei.js") // Correct way to import
 
 const app = express()
 app.use(
@@ -132,7 +132,26 @@ const uploadToVidhide = async (movie) => {
 //   }
 // }
 
-app.post("/api/upload", async (req, res) => {
+// Function to handle Mixdrop API upload
+const uploadToMixdrop = async (file) => {
+  try {
+    const formData = new FormData()
+    formData.append("email", "videosroomofficial@gmail.com")
+    formData.append("key", "I0nHwRrugSJwRUl6ScSe")
+    formData.append("file", fs.createReadStream(file.path), file.originalname)
+
+    const response = await axios.post("https://ul.mixdrop.ag/api", formData, {
+      headers: {
+        ...formData.getHeaders(),
+      },
+    })
+    return response.data
+  } catch (error) {
+    throw new Error(`Mixdrop upload failed: ${error.message}`)
+  }
+}
+
+app.post("/api/remote", async (req, res) => {
   const { movies } = req.body
   if (!movies || !Array.isArray(movies)) {
     return res.status(400).json({ error: "Invalid or missing movies array" })
@@ -315,14 +334,45 @@ app.post("/api/upload", async (req, res) => {
   }
 })
 
+app.post("/api/upload", upload.array("files"), async (req, res) => {
+  const files = req.files.length === 1 ? [req.files[0]] : req.files // Ensure files is always an array
+  const responses = []
 
+  try {
+    for (const file of files) {
+      const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "") // Remove the extension
+      console.log("🚀 ~ app.post ~ fileNameWithoutExt:", fileNameWithoutExt)
+      try {
+        const mixdropResponse = await uploadToMixdrop(file)
+        responses.push({ service: "Mixdrop", result: mixdropResponse })
+      } catch (error) {
+        console.error("Error uploading to Mixdrop:", error.message)
+        responses.push({ service: "Mixdrop", error: error.message })
+      }
+
+      // You can add more services or logic to handle other things here
+    }
+console.log(responses)
+    // res.json(responses)
+  } catch (error) {
+    res
+      .status(500)
+      .json({ error: "Error uploading files", message: error.message })
+  } finally {
+    // Clean up uploaded files after handling
+    files.forEach((file) => {
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path)
+      }
+    })
+  }
+})
 // ytsr('Binny and Family (2024) Hindi 360p', { safeSearch: true}).then(result => {
 //     let movie = result.items[0];
 //     console.log("🚀 ~ ytsr ~ movie:", movie)
 //     console.log("🚀 ~ /ytsr ~ movie:", movie?.author?.name === "Spike Tv")
 //     console.log("🚀 ~ /ytsr ~ movie:", movie?.author?.channelID === "UCsZdkgstWhCgJ6u9YOWZdbQ")
 // });
-
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
