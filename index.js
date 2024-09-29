@@ -70,6 +70,16 @@ const normalizeTitle = (title) => {
     .trim()
 }
 
+const normalizeMixdropTitle = (title) => {
+  return title
+  .toLowerCase()
+  .replace(/\.[a-z0-9]{2,4}$/i, "")
+  .replace(/[^a-z0-9\s]/g, "")
+  .trim();
+}
+
+
+
 const uploadToStreamwish = async (movie) => {
   try {
     const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=20445huibnrwap8ww1pp4&url=${movie}`
@@ -148,6 +158,17 @@ const uploadToMixdrop = async (file) => {
     return response.data
   } catch (error) {
     throw new Error(`Mixdrop upload failed: ${error.message}`)
+  }
+}
+
+const mixdropFileDetails = async (fileref) => {
+  try {
+    const mixdropFile = `https://api.mixdrop.ag/fileinfo2?email=videosroomofficial@gmail.com&key=I0nHwRrugSJwRUl6ScSe&ref[]=${fileref}`
+    const mixdropFileResponse = await axios.get(mixdropFile)
+    return mixdropFileResponse?.data
+  } catch (Error) {
+    console.error(`mixdrop file error for: ${fileref}`, Error.message)
+    throw new Error(`mixdrop file failed for: ${fileref}`)
   }
 }
 
@@ -231,6 +252,7 @@ app.post("/api/remote", async (req, res) => {
       } catch (error) {
         console.error("Error uploading to Vidhide:", error.message)
       }
+
       try {
         youtubeData = await searchYoutube(movie.title)
         responses.push({ service: "YouTube", result: youtubeData })
@@ -324,7 +346,6 @@ app.post("/api/remote", async (req, res) => {
       }
     }
 
-    // Send all responses at once after processing all movies
     res.status(200).json(responses)
   } catch (error) {
     console.error("Error uploading files:", error.message)
@@ -335,38 +356,170 @@ app.post("/api/remote", async (req, res) => {
 })
 
 app.post("/api/upload", upload.array("files"), async (req, res) => {
-  const files = req.files.length === 1 ? [req.files[0]] : req.files // Ensure files is always an array
-  const responses = []
+  const files = req.files.length === 1 ? [req.files[0]] : req.files;
+  const responses = [];
+  const matchedMovies = []; // To track movies already uploaded
+
+  let allMovies = [];
+  try {
+    const allMoviesResponse = await axios.get("https://backend.videosroom.com/public/api/all-movies");
+    allMovies = allMoviesResponse?.data?.data || [];
+  } catch (error) {
+    return res.status(500).json({ error: "Error fetching movies", message: error.message });
+  }
 
   try {
     for (const file of files) {
-      const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "") // Remove the extension
-      console.log("🚀 ~ app.post ~ fileNameWithoutExt:", fileNameWithoutExt)
-      try {
-        const mixdropResponse = await uploadToMixdrop(file)
-        responses.push({ service: "Mixdrop", result: mixdropResponse })
-      } catch (error) {
-        console.error("Error uploading to Mixdrop:", error.message)
-        responses.push({ service: "Mixdrop", error: error.message })
+      let mixdropResponse, mixdropFinalResponse, youtubeData;
+      const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "");
+      youtubeData = await searchYoutube(fileNameWithoutExt);
+
+      const matchedMovie = allMovies.find((m) => {
+        const titleA = normalizeTitle(m?.title);
+        const titleB = normalizeMixdropTitle(youtubeData?.title);
+        return titleA === titleB || titleA.includes(titleB) || titleB.includes(titleA);
+      });
+
+      if (matchedMovie) {
+        matchedMovies.push({ file: file.originalname, title: matchedMovie?.title }); // Collect matched files
+        continue; // Skip the rest of the code and move to the next file
       }
 
-      // You can add more services or logic to handle other things here
+      try {
+        mixdropResponse = await uploadToMixdrop(file);
+        // mixdropFinalResponse = await mixdropFileDetails(mixdropResponse?.result?.fileref);
+        responses.push({ service: "Mixdrop", result: mixdropResponse });
+        // responses.push({ service: "MixdropFileDetails", result: mixdropFinalResponse });
+      } catch (error) {
+        console.error("Error uploading to Mixdrop:", error.message);
+        responses.push({ service: "Mixdrop", error: error.message });
+        continue; 
+      }
+
+      try {
+        streamWishData = await uploadToStreamwish(mixdropResponse?.result?.url)
+        responses.push({ service: "StreamWish", result: streamWishData })
+      } catch (error) {
+        console.error("Error uploading to StreamWish:", error.message)
+      }
+
+      try {
+        doodliData = await uploadToDoodli(mixdropResponse?.result?.url)
+        responses.push({
+          service: "Doodapi",
+          result: doodliData,
+          messgae: doodliData?.msg,
+        })
+      } catch (error) {
+        console.error("Error uploading to Doodapi:", error.message)
+      }
+
+      try {
+        vidHideData = await uploadToVidhide(mixdropResponse?.result?.url)
+        responses.push({ service: "Vidhide", result: vidHideData })
+      } catch (error) {
+        console.error("Error uploading to Vidhide:", error.message)
+      }
+
+      // Handle thumbnail
+      const { title, description, duration, views, thumbnail } =
+        youtubeData || {}
+      const thumbnailUrl = thumbnail || defaultThumbnailUrl
+      const thumbnailDir = path.join(__dirname, "thumbnails")
+
+      // Ensure the directory exists before attempting to save the file
+      if (!fs.existsSync(thumbnailDir)) {
+        try {
+          fs.mkdirSync(thumbnailDir, { recursive: true })
+          console.log("Thumbnail directory created:", thumbnailDir)
+        } catch (dirError) {
+          console.error("Error creating thumbnail directory:", dirError.message)
+          return res
+            .status(500)
+            .json({ error: "Failed to create thumbnail directory" })
+        }
+      }
+
+      const sanitizedTitle = (title || "Untitled_Movie")
+        .replace(/[^a-zA-Z0-9\s_-]/g, "") // Sanitize the title to remove special characters
+        .replace(/\s+/g, "_") // Replace spaces with underscores
+
+      const thumbnailPath = path.join(thumbnailDir, `${sanitizedTitle}.jpg`)
+
+      try {
+        await downloadImage(thumbnailUrl, thumbnailPath)
+      } catch (downloadError) {
+        console.error(
+          `Error downloading thumbnail for: ${movie.title}. Using default thumbnail.`,
+          downloadError.message
+        )
+      }
+
+      // Prepare download and iframe links
+      const download_link1 = mixdropResponse?.result?.url
+      const iframe_link1 = mixdropResponse?.result?.embedurl
+      const download_link2 = `https://dood.li/d/${doodliData?.result?.filecode}`
+      const iframe_link2 = `https://dood.li/e/${doodliData?.result?.filecode}`
+      const download_link3 = `https://vidhideplus.com/file/${vidHideData?.result?.filecode}`
+      const iframe_link3 = `https://vidhideplus.com/embed/${vidHideData?.result?.filecode}`
+      const download_link4 = `https://playerwish.com/f/${streamWishData?.result?.filecode}`
+      const iframe_link4 = `https://playerwish.com/e/${streamWishData?.result?.filecode}`
+      
+      // Prepare form data for backend API
+      const formData = new FormData()
+      formData.append("title", title || "Untitled Movie")
+      formData.append("description", description || title)
+      formData.append("uploadBy", "admin")
+      formData.append("duration", duration || "0")
+      formData.append("views", views || "0")
+      formData.append("download_link1", download_link1)
+      formData.append("iframe_link1", iframe_link1)
+      formData.append("download_link2", download_link2)
+      formData.append("iframe_link2", iframe_link2)
+      formData.append("download_link3", download_link3)
+      formData.append("iframe_link3", iframe_link3)
+      formData.append("download_link4", download_link4)
+      formData.append("iframe_link4", iframe_link4)
+      formData.append("thumbnail", fs.createReadStream(thumbnailPath))
+
+      // Send movie data to backend API
+      try {
+        const addMovieResponse = await axios.post(
+          "https://backend.videosroom.com/public/api/add-movie",
+          formData,
+          { headers: { ...formData.getHeaders() } }
+        )
+
+        responses.push({
+          service: "Backend API",
+          result: addMovieResponse.data,
+        })
+      } catch (addMovieError) {
+        console.error("Error uploading to backend:", addMovieError.message)
+      }
     }
-console.log(responses)
-    // res.json(responses)
+
+    res.json({
+      status: 1,
+      message: "File processing completed",
+      matchedMovies, // Movies that are already uploaded
+      responses, // Mixdrop responses for uploaded files
+    });
   } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Error uploading files", message: error.message })
+    res.status(500).json({ error: "Error uploading files", message: error.message });
   } finally {
     // Clean up uploaded files after handling
     files.forEach((file) => {
       if (fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path)
+        fs.unlinkSync(file.path);
       }
-    })
+    });
   }
-})
+});
+
+
+
+
 // ytsr('Binny and Family (2024) Hindi 360p', { safeSearch: true}).then(result => {
 //     let movie = result.items[0];
 //     console.log("🚀 ~ ytsr ~ movie:", movie)
