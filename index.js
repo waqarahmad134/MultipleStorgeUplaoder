@@ -7,6 +7,7 @@ const FormData = require("form-data")
 const ytsr = require("@distube/ytsr")
 const cheerio = require("cheerio")
 const cors = require("cors")
+const Youtube = require('youtubei.js');  // Correct way to import
 
 const app = express()
 app.use(
@@ -94,16 +95,16 @@ const uploadToDoodli = async (movie) => {
   }
 }
 
-const uploadToUpstream = async (movie) => {
-  try {
-    const upstreamUrl = `https://upstream.to/api/upload/url?key=64637qwgzhzja5yhol5xk&url=${movie}`
-    const upstreamResponse = await axios.get(upstreamUrl)
-    return upstreamResponse?.data
-  } catch (Error) {
-    console.error(`Vidhide upload error for: ${movie?.title}`, Error.message)
-    throw new Error(`Vidhide upload failed for: ${movie?.title}`)
-  }
-}
+// const uploadToUpstream = async (movie) => {
+//   try {
+//     const upstreamUrl = `https://upstream.to/api/upload/url?key=64637qwgzhzja5yhol5xk&url=${movie}`
+//     const upstreamResponse = await axios.get(upstreamUrl)
+//     return upstreamResponse?.data
+//   } catch (Error) {
+//     console.error(`Vidhide upload error for: ${movie?.title}`, Error.message)
+//     throw new Error(`Vidhide upload failed for: ${movie?.title}`)
+//   }
+// }
 
 const uploadToVidhide = async (movie) => {
   try {
@@ -116,19 +117,20 @@ const uploadToVidhide = async (movie) => {
   }
 }
 
-const uploadStreamTape = async (movie) => {
-  try {
-    const streamTapeUrl = `https://api.streamtape.com/remotedl/add?login=18363eb8d9f015d97121&key=d3362LPrbVckYkd&url=${movie}`
-    const streamTapeResponse = await axios.get(streamTapeUrl)
-    return streamTapeResponse?.data
-  } catch (Error) {
-    console.error(
-      `Stream Tape upload error for: ${movie?.title}`,
-      Error.message
-    )
-    throw new Error(`Stream Tape upload failed for: ${movie?.title}`)
-  }
-}
+// const uploadStreamTape = async (movie) => {
+//   try {
+//     const streamTapeUrl = `https://api.streamtape.com/remotedl/add?login=18363eb8d9f015d97121&key=d3362LPrbVckYkd&url=${movie}`
+//     const streamTapeResponse = await axios.get(streamTapeUrl)
+//     console.log("🚀 ~ uploadStreamTape ~ streamTapeResponse:", streamTapeResponse)
+//     return streamTapeResponse?.data
+//   } catch (Error) {
+//     console.error(
+//       `Stream Tape upload error for: ${movie?.title}`,
+//       Error.message
+//     )
+//     throw new Error(`Stream Tape upload failed for: ${movie?.title}`)
+//   }
+// }
 
 app.post("/api/upload", async (req, res) => {
   const { movies } = req.body
@@ -178,12 +180,12 @@ app.post("/api/upload", async (req, res) => {
         console.error("Error uploading to StreamWish:", error.message)
       }
 
-      try {
-        streamTapeData = await uploadStreamTape(movie.url) // Assuming movie has a file property
-        responses.push({ service: "StreamTape", result: streamTapeData })
-      } catch (error) {
-        console.error("Error uploading to Stream Tape:", error.message)
-      }
+      // try {
+      //   streamTapeData = await uploadStreamTape(movie.url) // Assuming movie has a file property
+      //   responses.push({ service: "StreamTape", result: streamTapeData })
+      // } catch (error) {
+      //   console.error("Error uploading to Stream Tape:", error.message)
+      // }
 
       // Upload to Doodli
       try {
@@ -197,12 +199,12 @@ app.post("/api/upload", async (req, res) => {
         console.error("Error uploading to Doodapi:", error.message)
       }
 
-      try {
-        upStreamData = await uploadToUpstream(movie.url)
-        responses.push({ service: "Upstream", result: upStreamData })
-      } catch (error) {
-        console.error("Error uploading to Upstream:", error.message)
-      }
+      // try {
+      //   upStreamData = await uploadToUpstream(movie.url)
+      //   responses.push({ service: "Upstream", result: upStreamData })
+      // } catch (error) {
+      //   console.error("Error uploading to Upstream:", error.message)
+      // }
 
       try {
         vidHideData = await uploadToVidhide(movie.url)
@@ -312,6 +314,15 @@ app.post("/api/upload", async (req, res) => {
       .json({ error: "Error uploading files", message: error.message })
   }
 })
+
+
+// ytsr('Binny and Family (2024) Hindi 360p', { safeSearch: true}).then(result => {
+//     let movie = result.items[0];
+//     console.log("🚀 ~ ytsr ~ movie:", movie)
+//     console.log("🚀 ~ /ytsr ~ movie:", movie?.author?.name === "Spike Tv")
+//     console.log("🚀 ~ /ytsr ~ movie:", movie?.author?.channelID === "UCsZdkgstWhCgJ6u9YOWZdbQ")
+// });
+
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {

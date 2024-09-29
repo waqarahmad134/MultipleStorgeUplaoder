@@ -383,7 +383,11 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
 // });
 
 
--\
+// ytsr('Sikandar New 2024 Released Full Action Movie | Allu Arjun,Rashmika Mandanna,Sathyaraj #hindidubbed', { safeSearch: true}).then(result => {
+//   let movie = result.items[0];
+//   console.log('Name: ' + movie.name);
+//   console.log('Duration: ' + movie.thumbnail);
+// });
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
