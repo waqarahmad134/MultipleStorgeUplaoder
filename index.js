@@ -127,20 +127,20 @@ const uploadToVidhide = async (movie) => {
   }
 }
 
-// const uploadStreamTape = async (movie) => {
-//   try {
-//     const streamTapeUrl = `https://api.streamtape.com/remotedl/add?login=18363eb8d9f015d97121&key=d3362LPrbVckYkd&url=${movie}`
-//     const streamTapeResponse = await axios.get(streamTapeUrl)
-//     console.log("🚀 ~ uploadStreamTape ~ streamTapeResponse:", streamTapeResponse)
-//     return streamTapeResponse?.data
-//   } catch (Error) {
-//     console.error(
-//       `Stream Tape upload error for: ${movie?.title}`,
-//       Error.message
-//     )
-//     throw new Error(`Stream Tape upload failed for: ${movie?.title}`)
-//   }
-// }
+const uploadStreamTape = async (movie) => {
+  try {
+    const streamTapeUrl = `https://api.streamtape.com/remotedl/add?login=18363eb8d9f015d97121&key=d3362LPrbVckYkd&url=${movie}`
+    const streamTapeResponse = await axios.get(streamTapeUrl)
+    console.log("🚀 ~ uploadStreamTape ~ streamTapeResponse:", streamTapeResponse)
+    return streamTapeResponse?.data
+  } catch (Error) {
+    console.error(
+      `Stream Tape upload error for: ${movie?.title}`,
+      Error.message
+    )
+    throw new Error(`Stream Tape upload failed for: ${movie?.title}`)
+  }
+}
 
 // Function to handle Mixdrop API upload
 const uploadToMixdrop = async (file) => {
@@ -184,6 +184,7 @@ app.post("/api/remote", async (req, res) => {
     )
     const allMovies = allMoviesResponse?.data?.data || []
     const responses = []
+    const matchedMovies = []
 
     for (const movie of movies) {
       // Check if movie is already uploaded
@@ -198,6 +199,11 @@ app.post("/api/remote", async (req, res) => {
       })
 
       if (matchedMovie) {
+        matchedMovies.push({ file: file.originalname, title: matchedMovie?.title }); // Collect matched files
+        continue; // Skip the rest of the code and move to the next file
+      }
+      if (matchedMovie) {
+        
         return res.status(200).json({
           status: 1,
           error: "Movie Already Uploaded on Server",
@@ -220,12 +226,12 @@ app.post("/api/remote", async (req, res) => {
         console.error("Error uploading to StreamWish:", error.message)
       }
 
-      // try {
-      //   streamTapeData = await uploadStreamTape(movie.url) // Assuming movie has a file property
-      //   responses.push({ service: "StreamTape", result: streamTapeData })
-      // } catch (error) {
-      //   console.error("Error uploading to Stream Tape:", error.message)
-      // }
+      try {
+        streamTapeData = await uploadStreamTape(movie.url) // Assuming movie has a file property
+        responses.push({ service: "StreamTape", result: streamTapeData })
+      } catch (error) {
+        console.error("Error uploading to Stream Tape:", error.message)
+      }
 
       // Upload to Doodli
       try {
@@ -319,14 +325,14 @@ app.post("/api/remote", async (req, res) => {
       formData.append("iframe_link1", iframe_link1)
       formData.append("download_link2", download_link2)
       formData.append("iframe_link2", iframe_link2)
-      formData.append("download_link3", download_link3)
-      formData.append("iframe_link3", iframe_link3)
+      // formData.append("download_link3", download_link3)
+      // formData.append("iframe_link3", iframe_link3)
       formData.append("download_link4", download_link4)
       formData.append("iframe_link4", iframe_link4)
       formData.append("download_link5", download_link5)
       formData.append("iframe_link5", iframe_link5)
-      formData.append("download_link6", download_link6)
-      formData.append("iframe_link6", iframe_link6)
+      // formData.append("download_link6", download_link6)
+      // formData.append("iframe_link6", iframe_link6)
       formData.append("thumbnail", fs.createReadStream(thumbnailPath)) // Send the downloaded thumbnail
 
       // Send movie data to backend API
@@ -356,7 +362,7 @@ app.post("/api/remote", async (req, res) => {
 })
 
 app.post("/api/upload", upload.array("files"), async (req, res) => {
-  const files = req.files.length === 1 ? [req.files[0]] : req.files;
+  const files = req?.files?.length === 1 ? [req?.files[0]] : req.files;
   const responses = [];
   const matchedMovies = []; // To track movies already uploaded
 
