@@ -20,6 +20,11 @@ app.use(
 
 app.use(express.json()) // To parse JSON bodies
 process.env.YTSR_NO_UPDATE = "true"
+
+const doodliKey = "434272nxlae3r22329ia88"
+const streamwishKey = "19211xt467prybty85xsy"
+
+
 const defaultThumbnailUrl =
   "https://n-lightenment.com/wp-content/uploads/2015/10/movie-night11.jpg" // Replace with your actual default image path
 
@@ -47,21 +52,62 @@ const downloadImage = async (url, dest) => {
 }
 
 const searchYoutube = async (query) => {
+  // Helper functions to convert between time string and seconds
+  function timeToSeconds(time) {
+    const parts = time.split(':');
+    if (parts.length === 2) {
+      // If the format is MM:SS, convert it accordingly
+      return (+parts[0]) * 60 + (+parts[1]);
+    } else if (parts.length === 3) {
+      // If the format is HH:MM:SS, convert it to seconds
+      return (+parts[0]) * 3600 + (+parts[1]) * 60 + (+parts[2]);
+    }
+    return 0; // Default to 0 if format is unrecognized
+  }
+
+  function secondsToTime(seconds) {
+    const h = Math.floor(seconds / 3600).toString().padStart(2, '0');
+    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0');
+    const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${h}:${m}:${s}`;
+  }
+
+  // Minimum and maximum durations in seconds
+  const minDuration = timeToSeconds('01:10:00');
+  const maxDuration = timeToSeconds('01:45:00');
+
   try {
-    const searchResults = await ytsr(query, { safeSearch: true })
-    const movie = searchResults.items[0]
+    const searchResults = await ytsr(query, { safeSearch: true });
+    const movie = searchResults.items[0];
+
+    // Get movie duration in seconds, handling both MM:SS and HH:MM:SS formats
+    const movieDuration = movie?.duration ? timeToSeconds(movie.duration) : 0;
+
+    // Check if the movie's duration is smaller than 01:10:00
+    if (!movie.duration || movieDuration < minDuration) {
+      // Generate a random duration between 01:10:00 and 01:45:00
+      const randomDuration = Math.floor(Math.random() * (maxDuration - minDuration + 1)) + minDuration;
+      movie.duration = secondsToTime(randomDuration);
+    } else {
+      // If duration is valid and above 01:10:00, convert to HH:MM:SS if necessary
+      movie.duration = movie.duration.length === 4 ? `00:${movie.duration}` : movie.duration;
+    }
+
+    console.log(movie?.duration, movie?.views);
+
     return {
-      title: movie?.name || "No title found",
+      title: movie?.name || query,
       thumbnail: movie?.thumbnail || null,
       description: movie?.description,
       duration: movie?.duration || "01:32:00",
       views: movie?.views || "0",
-    }
+    };
   } catch (error) {
-    console.error(`YouTube search failed: ${error.message}`)
-    return { error: `YouTube search failed: ${error.message}` }
+    console.error(`YouTube search failed: ${error.message}`);
+    return { error: `YouTube search failed: ${error.message}` };
   }
-}
+};
+
 
 const normalizeTitle = (title) => {
   return title
@@ -82,7 +128,7 @@ const normalizeMixdropTitle = (title) => {
 
 const uploadToStreamwish = async (movie) => {
   try {
-    const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=20445huibnrwap8ww1pp4&url=${movie}`
+    const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=${streamwishKey}&url=${movie}`
     const streamWishResponse = await axios.get(streamWishUrl)
     return streamWishResponse?.data
   } catch (streamWishError) {
@@ -96,7 +142,7 @@ const uploadToStreamwish = async (movie) => {
 
 const uploadToDoodli = async (movie) => {
   try {
-    const doodliUrl = `https://doodapi.com/api/upload/url?key=455613j9vxgg2me3lk6wt7&url=${movie}`
+    const doodliUrl = `https://doodapi.com/api/upload/url?key=${doodliKey}&url=${movie}`
     const doodliResponse = await axios.get(doodliUrl)
     return doodliResponse?.data
   } catch (Error) {
@@ -131,7 +177,6 @@ const uploadStreamTape = async (movie) => {
   try {
     const streamTapeUrl = `https://api.streamtape.com/remotedl/add?login=18363eb8d9f015d97121&key=d3362LPrbVckYkd&url=${movie}`
     const streamTapeResponse = await axios.get(streamTapeUrl)
-    console.log("🚀 ~ uploadStreamTape ~ streamTapeResponse:", streamTapeResponse)
     return streamTapeResponse?.data
   } catch (Error) {
     console.error(
@@ -139,6 +184,18 @@ const uploadStreamTape = async (movie) => {
       Error.message
     )
     throw new Error(`Stream Tape upload failed for: ${movie?.title}`)
+  }
+}
+
+// Remote mixdrop 
+const remoteMixDrop = async (movie) => {
+  try {
+    const remoteMixDropUrl = `https://api.mixdrop.ag/remoteupload?email=videosroomofficial@gmail.com&key=I0nHwRrugSJwRUl6ScSe&url=${movie}`
+    const remoteMixDropResponse = await axios.get(remoteMixDropUrl)
+    return remoteMixDropResponse?.data
+  } catch (Error) {
+    console.error(`Mix drop upload error`,Error.message)
+    throw new Error(`Mix Drop upload failed`)
   }
 }
 
@@ -155,6 +212,7 @@ const uploadToMixdrop = async (file) => {
         ...formData.getHeaders(),
       },
     })
+    console.log("🚀 ~ uploadToMixdrop ~ response.data:", response.data)
     return response.data
   } catch (error) {
     throw new Error(`Mixdrop upload failed: ${error.message}`)
@@ -173,7 +231,79 @@ const mixdropFileDetails = async (fileref) => {
 }
 
 app.post("/api/remote", async (req, res) => {
-  const { movies } = req.body
+  const data  = req.body
+  const movies = data?.movies?.titled
+  const remoteMovies = data?.movies?.plain
+
+  if (remoteMovies?.length > 0) {
+    const responses = [];
+    const matchedMovies = [];
+    try {
+      for (const movie of remoteMovies) {
+        try {
+          let mixdropResponse = await remoteMixDrop(movie?.url);
+          const fileref = mixdropResponse?.result?.fileref
+          await new Promise((resolve) => setTimeout(resolve, 5000)); 
+          let mixdropFinalResponse = await mixdropFileDetails(fileref);          
+          responses.push({ service: "Mixdrop", result: mixdropResponse, movie: movie?.title });
+          responses.push({ service: "MixdropFileDetails", result: mixdropFinalResponse, movie: movie?.title , fileref : fileref });
+        } catch (error) {
+          console.error(`Error uploading movie: ${movie?.title} to Mixdrop:`, error.message);
+          responses.push({ service: "Mixdrop", error: error.message, movie: movie?.title });
+        }
+      }
+    } catch (error) {
+      console.error("Error uploading to Mixdrop:", error.message);
+      responses.push({ service: "Mixdrop", error: error.message });
+    }
+    const fileref = responses.find(res =>res.service === "MixdropFileDetails")?.fileref
+    const title =  responses.find(res =>res.service === "MixdropFileDetails")?.result?.result?.[fileref]?.title
+    console.log("🚀 ~ app.post ~ title:", title)
+    
+    
+    try {
+      // Second block: Fetching all movies from backend and checking for duplicates
+      const allMoviesResponse = await axios.get(
+        "https://backend.videosroom.com/public/api/all-movies"
+      );
+      const allMovies = allMoviesResponse?.data?.data || [];
+  
+      for (const movie of remoteMovies) {
+        const matchedMovie = allMovies.find((m) => {
+          const titleA = normalizeTitle(m?.title);
+          const titleB = normalizeTitle(title);
+          return (
+            titleA === titleB ||
+            titleA.includes(titleB) ||
+            titleB.includes(titleA)
+          );
+        });
+  
+        if (matchedMovie) {
+          matchedMovies.push({
+            status: 1,
+            error: "Movie Already Uploaded on Server",
+            message: "Match Found",
+            data: movie?.title,
+          });
+          continue; // Skip to the next movie if a match is found
+        }
+      }
+  
+      // Add a response for the matched movies check
+      responses.push({ service: "All Movies Check", result: matchedMovies });
+    } catch (error) {
+      console.error("Error fetching movies or checking for duplicates:", error.message);
+      responses.push({ service: "All Movies Check", error: error.message });
+    }
+  
+    // Return the responses as a JSON object
+    return res.json({ responses });
+  }
+
+  __________
+  
+  // Movies with title 
   if (!movies || !Array.isArray(movies)) {
     return res.status(400).json({ error: "Invalid or missing movies array" })
   }
@@ -187,31 +317,6 @@ app.post("/api/remote", async (req, res) => {
     const matchedMovies = []
 
     for (const movie of movies) {
-      // Check if movie is already uploaded
-      const matchedMovie = allMovies.find((m) => {
-        const titleA = normalizeTitle(m?.title)
-        const titleB = normalizeTitle(movie?.title)
-        return (
-          titleA === titleB ||
-          titleA.includes(titleB) ||
-          titleB.includes(titleA)
-        )
-      })
-
-      if (matchedMovie) {
-        matchedMovies.push({ file: file.originalname, title: matchedMovie?.title }); // Collect matched files
-        continue; // Skip the rest of the code and move to the next file
-      }
-      if (matchedMovie) {
-        
-        return res.status(200).json({
-          status: 1,
-          error: "Movie Already Uploaded on Server",
-          message: "Match Found",
-          data: movie?.title,
-        })
-      }
-
       let streamWishData,
         doodliData,
         upStreamData,
@@ -219,8 +324,37 @@ app.post("/api/remote", async (req, res) => {
         streamTapeData,
         youtubeData
 
+
+      try {
+        youtubeData = await searchYoutube(movie.title)
+        console.log("🚀 ~ app.post ~ youtubeData:", youtubeData)
+        responses.push({ service: "YouTube", result: youtubeData })
+      } catch (error) {
+        console.error("Error uploading to Youtube:", error.message)
+      }
+
+
+        const matchedMovie = allMovies.find((m) => {
+        const titleA = normalizeTitle(m?.title)
+        const titleB = normalizeTitle(youtubeData?.title)
+        return (
+          titleA === titleB ||
+          titleA.includes(titleB) ||
+          titleB.includes(titleA)
+        )
+      })
+
+      console.log( "matchedMovie" , matchedMovie)
+
+      if (matchedMovie) {
+        matchedMovies.push({ status: 1, error: "Movie Already Uploaded on Server", message: "Match Found",          data: movie?.title, }); // Collect matched files
+        continue; // Skip the rest of the code and move to the next file
+      }
+
+
       try {
         streamWishData = await uploadToStreamwish(movie.url) // Assuming movie has a file property
+        console.log("🚀 ~ app.post ~ streamWishData:", streamWishData)
         responses.push({ service: "StreamWish", result: streamWishData })
       } catch (error) {
         console.error("Error uploading to StreamWish:", error.message)
@@ -228,6 +362,7 @@ app.post("/api/remote", async (req, res) => {
 
       try {
         streamTapeData = await uploadStreamTape(movie.url) // Assuming movie has a file property
+        console.log("🚀 ~ app.post ~ streamTapeData:", streamTapeData)
         responses.push({ service: "StreamTape", result: streamTapeData })
       } catch (error) {
         console.error("Error uploading to Stream Tape:", error.message)
@@ -236,6 +371,7 @@ app.post("/api/remote", async (req, res) => {
       // Upload to Doodli
       try {
         doodliData = await uploadToDoodli(movie.url)
+        console.log("🚀 ~ app.post ~ doodliData:", doodliData)
         responses.push({
           service: "Doodapi",
           result: doodliData,
@@ -254,21 +390,15 @@ app.post("/api/remote", async (req, res) => {
 
       try {
         vidHideData = await uploadToVidhide(movie.url)
+        console.log("🚀 ~ app.post ~ vidHideData:", vidHideData)
         responses.push({ service: "Vidhide", result: vidHideData })
       } catch (error) {
         console.error("Error uploading to Vidhide:", error.message)
       }
 
-      try {
-        youtubeData = await searchYoutube(movie.title)
-        responses.push({ service: "YouTube", result: youtubeData })
-      } catch (error) {
-        console.error("Error uploading to Youtube:", error.message)
-      }
-
+      
       // Handle thumbnail
-      const { title, description, duration, views, thumbnail } =
-        youtubeData || {}
+      const { title, description, duration, views, thumbnail } = youtubeData
       const thumbnailUrl = thumbnail || defaultThumbnailUrl
       const thumbnailDir = path.join(__dirname, "thumbnails")
 
@@ -314,6 +444,8 @@ app.post("/api/remote", async (req, res) => {
       const download_link6 = `https://streamtape.com/v/${streamTapeData?.result?.id}`
       const iframe_link6 = `https://streamtape.com/e/${streamTapeData?.result?.id}`
 
+      
+
       // Prepare form data for backend API
       const formData = new FormData()
       formData.append("title", title || "Untitled Movie")
@@ -351,8 +483,12 @@ app.post("/api/remote", async (req, res) => {
         console.error("Error uploading to backend:", addMovieError.message)
       }
     }
-
-    res.status(200).json(responses)
+    res.json({
+      status: 1,
+      message: "File processing completed",
+      matchedMovies, // Movies that are already uploaded
+      responses, 
+    });
   } catch (error) {
     console.error("Error uploading files:", error.message)
     res
@@ -526,11 +662,11 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
 
 
 
-// ytsr('Binny and Family (2024) Hindi 360p', { safeSearch: true}).then(result => {
+// ytsr("Ram Pothineni's - SKANDA | New Released South Indian Hindi Dubbed Movie 2024 | Sreeleela", { safeSearch: true}).then(result => {
 //     let movie = result.items[0];
-//     console.log("🚀 ~ ytsr ~ movie:", movie)
-//     console.log("🚀 ~ /ytsr ~ movie:", movie?.author?.name === "Spike Tv")
-//     console.log("🚀 ~ /ytsr ~ movie:", movie?.author?.channelID === "UCsZdkgstWhCgJ6u9YOWZdbQ")
+//     console.log("🚀 ~ ytsr ~ movie:", movie?.name)
+//     console.log("🚀 ~ ytsr ~ movie:", result)
+    
 // });
 
 const PORT = process.env.PORT || 5000
