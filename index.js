@@ -398,11 +398,9 @@ app.post("/api/remoteMixdrop", async (req, res) => {
           res.movie === movie?.title && res.service === "MixdropFileDetails"
       )?.title
       const fileNameWithoutExt = title?.replace(/\.[^/.]+$/, "")
-      console.log("🚀 ~ app.post ~ fileNameWithoutExt:", fileNameWithoutExt)
       if (fileNameWithoutExt) {
         try {
           youtubeData = await searchYoutubeNew(fileNameWithoutExt)
-          console.log("🚀 ~ app.post ~ youtubeData:", youtubeData)
           responses.push({ service: "YouTube", result: youtubeData })
         } catch (error) {
           console.error("Error uploading to YouTube:", error.message)
