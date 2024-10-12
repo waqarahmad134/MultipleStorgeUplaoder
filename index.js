@@ -7,14 +7,14 @@ const FormData = require("form-data")
 const ytsr = require("@distube/ytsr")
 const cheerio = require("cheerio")
 const cors = require("cors")
-const { YouTube } = require('youtube-sr');
+const { YouTube } = require("youtube-sr")
 // const ImageSearch = require('image-search');
-const youtubesearchapi = require("youtube-search-api");
-const ytSearch = require('yt-search');
+const youtubesearchapi = require("youtube-search-api")
+const ytSearch = require("yt-search")
+const Fuse = require("fuse.js")
+const levenshtein = require("fast-levenshtein")
 
-
-
-const fetch = require('node-fetch');
+const fetch = require("node-fetch")
 
 const app = express()
 app.use(
@@ -27,9 +27,6 @@ app.use(
 
 app.use(express.json()) // To parse JSON bodies
 process.env.YTSR_NO_UPDATE = "true"
-
-const doodliKey = "434272nxlae3r22329ia88"
-const streamwishKey = "19211xt467prybty85xsy"
 
 const defaultThumbnailUrl =
   "https://n-lightenment.com/wp-content/uploads/2015/10/movie-night11.jpg" // Replace with your actual default image path
@@ -108,8 +105,6 @@ const searchYoutube = async (query) => {
         movie.duration.length === 4 ? `00:${movie.duration}` : movie.duration
     }
 
-    console.log(movie?.duration, movie?.views)
-
     return {
       title: movie?.name || query,
       thumbnail: movie?.thumbnail || null,
@@ -124,24 +119,79 @@ const searchYoutube = async (query) => {
 }
 
 const searchYoutubeNew = async (query) => {
-  console.log("🚀 ~ searchYoutubeNew ~ query:", query)
-  const options = {
+  const searchOptions = {
     maxResults: 5,
   };
+
   try {
-    const results = await youtubesearchapi.GetListByKeyword(query, options);
-    const videos = {
-      title: results?.items?.[0]?.title,
-      thumbnail: results?.items?.[0]?.thumbnail?.thumbnails?.[0]?.url, 
-      thumbnail1: results?.items?.[0]?.thumbnail?.thumbnails?.[1]?.url,
+    const results = await youtubesearchapi.GetListByKeyword(query, searchOptions);
+    const firstVideo = results?.items?.filter(data => data?.type === "video")
+    const firstVideoId = firstVideo?.id;
+    let videoDetails = {};
+    if (firstVideoId) {
+      try {
+        videoDetails = await new Promise((resolve, reject) => {
+          ytSearch({ videoId: firstVideoId }, (err, result) => {
+            if (err) {
+              console.error("Error fetching video details:", err);
+              resolve({
+                description: "Default description",
+                timestamp: "00:00",
+                views: 0,
+                uploadDate: "2024-01-01",
+              });
+            } else {
+              console.log("Video details result:", result);
+              resolve(result);
+            }
+          });
+        });
+      } catch (detailError) {
+        console.error("Error fetching video details:", detailError);
+        videoDetails = {
+          description: "Default description",
+          timestamp: "00:00",
+          views: 0,
+          uploadDate: "2024-01-01",
+        };
+      }
+    } else {
+      // If no video found, set hardcoded default values
+      videoDetails = {
+        description: "No video found",
+        timestamp: "00:00",
+        views: 0,
+        uploadDate: "2024-01-01",
+      };
     }
-    return videos;
+
+    const videoData = {
+      id: firstVideoId || "default-id",
+      title: firstVideo?.title || "Default Title",
+      thumbnail: firstVideo?.thumbnail?.thumbnails?.[0]?.url || "default-thumbnail-url",
+      thumbnail1: firstVideo?.thumbnail?.thumbnails?.[1]?.url || "default-thumbnail-url-1",
+      description: videoDetails?.description || "Default description",
+      timestamp: videoDetails?.timestamp || "00:00",
+      views: videoDetails?.views || 0,
+      uploadDate: videoDetails?.uploadDate || "2024-01-01",
+    };
+
+    return videoData;
   } catch (err) {
-    console.error(err);
-    throw err;
+    console.error("Error during YouTube search:", err);
+    // Return hardcoded values when an error occurs
+    return {
+      id: "default-id",
+      title: "Default Title",
+      thumbnail: "default-thumbnail-url",
+      thumbnail1: "default-thumbnail-url-1",
+      description: "Default description",
+      timestamp: "00:00",
+      views: 0,
+      uploadDate: "2024-01-01",
+    };
   }
 };
-
 
 const normalizeTitle = (title) => {
   return title
@@ -158,7 +208,7 @@ const normalizeMixdropTitle = (title) => {
     .trim()
 }
 
-const uploadToStreamwish = async (movie) => {
+const uploadToStreamwish = async (movie, streamwishKey) => {
   try {
     const streamWishUrl = `https://api.streamwish.com/api/upload/url?key=${streamwishKey}&url=${movie}`
     const streamWishResponse = await axios.get(streamWishUrl)
@@ -172,7 +222,7 @@ const uploadToStreamwish = async (movie) => {
   }
 }
 
-const uploadToDoodli = async (movie) => {
+const uploadToDoodli = async (movie, doodliKey) => {
   try {
     const doodliUrl = `https://doodapi.com/api/upload/url?key=${doodliKey}&url=${movie}`
     const doodliResponse = await axios.get(doodliUrl)
@@ -194,9 +244,9 @@ const uploadToDoodli = async (movie) => {
 //   }
 // }
 
-const uploadToVidhide = async (movie) => {
+const uploadToVidhide = async (movie, vidhideKey) => {
   try {
-    const vidHideUrl = `https://vidhideapi.com/api/upload/url?key=31076w3lc27ihj621zyb7&url=${movie}`
+    const vidHideUrl = `https://vidhideapi.com/api/upload/url?key=${vidhideKey}&url=${movie}`
     const vidHideResponse = await axios.get(vidHideUrl)
     return vidHideResponse?.data
   } catch (Error) {
@@ -220,9 +270,9 @@ const uploadStreamTape = async (movie) => {
 }
 
 // Remote mixdrop
-const remoteMixDrop = async (movie) => {
+const remoteMixDrop = async (movie, mixEmail, mixKey) => {
   try {
-    const remoteMixDropUrl = `https://api.mixdrop.ag/remoteupload?email=videosroomofficial@gmail.com&key=I0nHwRrugSJwRUl6ScSe&url=${movie}`
+    const remoteMixDropUrl = `https://api.mixdrop.ag/remoteupload?email=${mixEmail}&key=${mixKey}&url=${movie}`
     const remoteMixDropResponse = await axios.get(remoteMixDropUrl)
     return remoteMixDropResponse?.data
   } catch (Error) {
@@ -232,11 +282,11 @@ const remoteMixDrop = async (movie) => {
 }
 
 // Function to handle Mixdrop API upload
-const uploadToMixdrop = async (file) => {
+const uploadToMixdrop = async (file, mixEmail, mixKey) => {
   try {
     const formData = new FormData()
-    formData.append("email", "videosroomofficial@gmail.com")
-    formData.append("key", "I0nHwRrugSJwRUl6ScSe")
+    formData.append("email", mixEmail)
+    formData.append("key", mixKey)
     formData.append("file", fs.createReadStream(file.path), file.originalname)
 
     const response = await axios.post("https://ul.mixdrop.ag/api", formData, {
@@ -244,16 +294,15 @@ const uploadToMixdrop = async (file) => {
         ...formData.getHeaders(),
       },
     })
-    console.log("🚀 ~ uploadToMixdrop ~ response.data:", response.data)
     return response.data
   } catch (error) {
     throw new Error(`Mixdrop upload failed: ${error.message}`)
   }
 }
 
-const mixdropFileDetails = async (fileref) => {
+const mixdropFileDetails = async (fileref, mixEmail, mixKey) => {
   try {
-    const mixdropFile = `https://api.mixdrop.ag/fileinfo2?email=videosroomofficial@gmail.com&key=I0nHwRrugSJwRUl6ScSe&ref[]=${fileref}`
+    const mixdropFile = `https://api.mixdrop.ag/fileinfo2?email=${mixEmail}&key=${mixKey}&ref[]=${fileref}`
     const mixdropFileResponse = await axios.get(mixdropFile)
     return mixdropFileResponse?.data
   } catch (Error) {
@@ -262,22 +311,48 @@ const mixdropFileDetails = async (fileref) => {
   }
 }
 
-
-
-app.post("/api/remote", async (req, res) => {
+app.post("/api/remoteMixdrop", async (req, res) => {
   const data = req.body
-  console.log("🚀 ~ app.post ~ data:", data?.selectedCategories)
+  let accountData
+  if (typeof data?.accountData === "string") {
+    try {
+      accountData = JSON.parse(data?.accountData)
+    } catch (error) {
+      console.error("🚀 ~ JSON parse error:", error.message)
+      return res.status(400).json({ message: "Invalid account data format" })
+    }
+  } else {
+    accountData = data?.accountData
+  }
+  const mixEmail = accountData?.mixEmail
+  const mixKey = accountData?.mixKey
+  const doodliEmail = accountData?.doodliEmail
+  const doodliKey = accountData?.doodliKey
+  const vidhideEmail = accountData?.vidhideEmail
+  const vidhideKey = accountData?.vidhideKey
+  const streamwishEmail = accountData?.streamwishEmail
+  const streamwishKey = accountData?.streamwishKey
+
   const remoteMovies = data?.movies?.plain
   const responses = []
   const matchedMovies = []
-
   try {
     for (const movie of remoteMovies) {
       try {
-        let mixdropResponse = await remoteMixDrop(movie?.url)
+        let mixdropResponse = await remoteMixDrop(movie?.url, mixEmail, mixKey)
+        if (mixdropResponse?.result?.msg === "Invalid login") {
+          res.json({
+            status: 1,
+            message: "Invalid login",
+          })
+        }
         const fileref = mixdropResponse?.result?.fileref
         await new Promise((resolve) => setTimeout(resolve, 10000))
-        let mixdropFinalResponse = await mixdropFileDetails(fileref)
+        let mixdropFinalResponse = await mixdropFileDetails(
+          fileref,
+          mixEmail,
+          mixKey
+        )
         const title = mixdropFinalResponse?.result?.[fileref]?.title
         responses.push({
           service: "Mixdrop",
@@ -307,14 +382,13 @@ app.post("/api/remote", async (req, res) => {
     console.error("Error uploading to Mixdrop:", error.message)
     responses.push({ service: "Mixdrop", error: error.message })
   }
-
   try {
     const allMoviesResponse = await axios.get(
       "https://backend.videosroom.com/public/api/all-movies"
     )
     const allMovies = allMoviesResponse?.data?.data || []
     for (const movie of remoteMovies) {
-      let youtubeData;
+      let youtubeData
       const fileref = responses.find(
         (res) =>
           res.movie === movie?.title && res.service === "MixdropFileDetails"
@@ -337,7 +411,7 @@ app.post("/api/remote", async (req, res) => {
         console.warn(
           `YouTube search failed for movie: ${movie?.title}. Title is undefined.`
         )
-        continue 
+        continue
       }
 
       const matchedMovie = allMovies.find((m) => {
@@ -349,7 +423,6 @@ app.post("/api/remote", async (req, res) => {
           titleB.includes(titleA)
         )
       })
-      console.log("🚀 ~ matchedMovie ~ matchedMovie:", matchedMovie)
 
       if (matchedMovie) {
         matchedMovies.push({
@@ -358,24 +431,22 @@ app.post("/api/remote", async (req, res) => {
           message: "Match Found",
           data: movie?.title,
         })
-        continue // Skip to the next movie if a match is found
+        continue
       }
 
-      
-
-      // Handle thumbnail
       const {
         title: ytTitle,
         description,
         duration,
         views,
         thumbnail,
+        timestamp,
+        uploadDate,
       } = youtubeData
-      
+
       const thumbnailUrl = thumbnail || defaultThumbnailUrl
       const thumbnailDir = path.join(__dirname, "thumbnails")
 
-      // Ensure the directory exists before attempting to save the file
       if (!fs.existsSync(thumbnailDir)) {
         try {
           fs.mkdirSync(thumbnailDir, { recursive: true })
@@ -391,7 +462,7 @@ app.post("/api/remote", async (req, res) => {
         .replace(/[^a-zA-Z0-9\s_-]/g, "") // Sanitize the title to remove special characters
         .replace(/\s+/g, "_") // Replace spaces with underscores
 
-      const thumbnailPath = path.join(thumbnailDir, `${sanitizedTitle}.jpg`)
+      const thumbnailPath = path.join(thumbnailDir, `${title}.jpg`)
 
       try {
         await downloadImage(thumbnailUrl, thumbnailPath)
@@ -402,20 +473,27 @@ app.post("/api/remote", async (req, res) => {
         )
       }
 
-      // Prepare form data for backend API
       const formData = new FormData()
       formData.append("title", fileNameWithoutExt || ytTitle)
-      formData.append("meta_description", description || fileNameWithoutExt || ytTitle)
-      formData.append("description", description || fileNameWithoutExt || ytTitle)
+      formData.append(
+        "meta_description",
+        description?.substring(0, 100) || fileNameWithoutExt || ytTitle
+      )
+      formData.append(
+        "description",
+        description || fileNameWithoutExt || ytTitle
+      )
       formData.append("uploadBy", "admin")
-      formData.append("duration", duration || "0")
+      formData.append("duration", timestamp || "1:30:32")
+      formData.append("year", uploadDate || "0")
       formData.append("views", views || "0")
       formData.append("download_link1", movie?.url)
       formData.append("iframe_link1", movie?.url)
-      formData.append("thumbnail", fs.createReadStream(thumbnailPath)) // Send the downloaded thumbnail
-      data?.selectedCategories.forEach((id) => formData.append('category_ids[]', id));
+      formData.append("thumbnail", fs.createReadStream(thumbnailPath))
+      data?.selectedCategories.forEach((id) =>
+        formData.append("category_ids[]", id)
+      )
 
-      // Send movie data to backend API
       try {
         const addMovieResponse = await axios.post(
           "https://backend.videosroom.com/public/api/add-movie",
@@ -432,12 +510,11 @@ app.post("/api/remote", async (req, res) => {
       }
     }
 
-    // Add a response for the matched movies check
     responses.push({ service: "All Movies Check", result: matchedMovies })
     res.json({
       status: 1,
       message: "File processing completed",
-      matchedMovies, // Movies that are already uploaded
+      matchedMovies,
       responses,
     })
   } catch (error) {
@@ -447,16 +524,17 @@ app.post("/api/remote", async (req, res) => {
     )
     responses.push({ service: "All Movies Check", error: error.message })
     if (!res.headersSent) {
-      // Check if headers have been sent before responding
       res.json({ status: 0, message: "Error processing files", responses })
     }
   }
 })
 
 app.post("/api/upload", upload.array("files"), async (req, res) => {
+  selectedCategories = JSON.parse(req.body.selectedCategories)
+
   const files = req?.files?.length === 1 ? [req?.files[0]] : req.files
   const responses = []
-  const matchedMovies = [] // To track movies already uploaded
+  const matchedMovies = []
 
   let allMovies = []
   try {
@@ -474,11 +552,11 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
     for (const file of files) {
       let mixdropResponse, mixdropFinalResponse, youtubeData
       const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "")
-      youtubeData = await searchYoutube(fileNameWithoutExt)
+      youtubeData = await searchYoutubeNew(fileNameWithoutExt)
 
       const matchedMovie = allMovies.find((m) => {
         const titleA = normalizeTitle(m?.title)
-        const titleB = normalizeMixdropTitle(youtubeData?.title)
+        const titleB = normalizeMixdropTitle(fileNameWithoutExt)
         return (
           titleA === titleB ||
           titleA.includes(titleB) ||
@@ -490,15 +568,13 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
         matchedMovies.push({
           file: file.originalname,
           title: matchedMovie?.title,
-        }) // Collect matched files
-        continue // Skip the rest of the code and move to the next file
+        })
+        continue
       }
 
       try {
         mixdropResponse = await uploadToMixdrop(file)
-        // mixdropFinalResponse = await mixdropFileDetails(mixdropResponse?.result?.fileref);
         responses.push({ service: "Mixdrop", result: mixdropResponse })
-        // responses.push({ service: "MixdropFileDetails", result: mixdropFinalResponse });
       } catch (error) {
         console.error("Error uploading to Mixdrop:", error.message)
         responses.push({ service: "Mixdrop", error: error.message })
@@ -530,13 +606,18 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
         console.error("Error uploading to Vidhide:", error.message)
       }
 
-      // Handle thumbnail
-      const { title, description, duration, views, thumbnail } =
-        youtubeData || {}
+      const {
+        title,
+        description,
+        duration,
+        views,
+        thumbnail,
+        timestamp,
+        uploadDate,
+      } = youtubeData || {}
       const thumbnailUrl = thumbnail || defaultThumbnailUrl
       const thumbnailDir = path.join(__dirname, "thumbnails")
 
-      // Ensure the directory exists before attempting to save the file
       if (!fs.existsSync(thumbnailDir)) {
         try {
           fs.mkdirSync(thumbnailDir, { recursive: true })
@@ -550,8 +631,8 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
       }
 
       const sanitizedTitle = (title || "Untitled_Movie")
-        .replace(/[^a-zA-Z0-9\s_-]/g, "") // Sanitize the title to remove special characters
-        .replace(/\s+/g, "_") // Replace spaces with underscores
+        .replace(/[^a-zA-Z0-9\s_-]/g, "")
+        .replace(/\s+/g, "_")
 
       const thumbnailPath = path.join(thumbnailDir, `${sanitizedTitle}.jpg`)
 
@@ -559,12 +640,11 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
         await downloadImage(thumbnailUrl, thumbnailPath)
       } catch (downloadError) {
         console.error(
-          `Error downloading thumbnail for: ${movie.title}. Using default thumbnail.`,
+          `Error downloading thumbnail for: ${fileNameWithoutExt}. Using default thumbnail.`,
           downloadError.message
         )
       }
 
-      // Prepare download and iframe links
       const download_link1 = mixdropResponse?.result?.url
       const iframe_link1 = mixdropResponse?.result?.embedurl
       const download_link2 = `https://dood.li/d/${doodliData?.result?.filecode}`
@@ -576,11 +656,12 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
 
       // Prepare form data for backend API
       const formData = new FormData()
-      formData.append("title", title || "Untitled Movie")
-      formData.append("description", description || title)
+      formData.append("title", fileNameWithoutExt || title)
+      formData.append("description", description || fileNameWithoutExt)
       formData.append("uploadBy", "admin")
-      formData.append("duration", duration || "0")
+      formData.append("duration", timestamp || "0")
       formData.append("views", views || "0")
+      formData.append("year", uploadDate || "0")
       formData.append("download_link1", download_link1)
       formData.append("iframe_link1", iframe_link1)
       formData.append("download_link2", download_link2)
@@ -590,6 +671,7 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
       formData.append("download_link4", download_link4)
       formData.append("iframe_link4", iframe_link4)
       formData.append("thumbnail", fs.createReadStream(thumbnailPath))
+      selectedCategories.forEach((id) => formData.append("category_ids[]", id))
 
       // Send movie data to backend API
       try {
@@ -611,15 +693,14 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
     res.json({
       status: 1,
       message: "File processing completed",
-      matchedMovies, // Movies that are already uploaded
-      responses, // Mixdrop responses for uploaded files
+      matchedMovies,
+      responses,
     })
   } catch (error) {
     res
       .status(500)
       .json({ error: "Error uploading files", message: error.message })
   } finally {
-    // Clean up uploaded files after handling
     files.forEach((file) => {
       if (fs.existsSync(file.path)) {
         fs.unlinkSync(file.path)
@@ -633,37 +714,41 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
 //     console.log("🚀 ~ ytsr ~ movie:", result)
 // });
 
-const options = {
-  maxResults: 5, 
-};
+// const options = {
+//   maxResults: 5,
+// };
 
-youtubesearchapi.GetListByKeyword("teh greatest of all time", options)
-  .then(results => {
-    console.log("first" , results?.items?.[0]?.id)
-    const videos = results?.items?.map(video => ({
-      title: video.title,
-      thumbnail: video.thumbnail?.thumbnails?.[0]?.url, // Assuming you want the first thumbnail
-      thumbnail1: video.thumbnail?.thumbnails?.[1]?.url, // Assuming you want the first thumbnail
-      thumbnail2: video.thumbnail?.thumbnails?.[2]?.url, // Assuming you want the first thumbnail
-    }));  
-    const firstVideoId = results?.items?.[0]?.id; // Extract the ID of the first video
-    // if (firstVideoId) {
-    //   youtubesearchapi.GetVideoDetails(firstVideoId)
-    //     .then(details => {
-    //       console.log("Video details for the first video:", details?.suggestion?.[0]?.length);
-    //     })
-    //     .catch(err => {
-    //       console.error("Error fetching video details:", err);
-    //     });
-    // }  
-    ytSearch({ videoId: firstVideoId }, (err, result) => {
-      if (err) throw err;
-      console.log("result " , result);
-    });
-  })
-  .catch(err => {
-    console.error(err);
-  });
+// youtubesearchapi.GetListByKeyword("Deadpool Regenerates", options)
+//   .then(results => {
+//     console.log("first" , results?.items?.filter(data => data?.type === "video"))
+//     const videos = results?.items?.map(video => ({
+//       title: video.title,
+//       thumbnail: video.thumbnail?.thumbnails?.[0]?.url, // Assuming you want the first thumbnail
+//       thumbnail1: video.thumbnail?.thumbnails?.[1]?.url, // Assuming you want the first thumbnail
+//       thumbnail2: video.thumbnail?.thumbnails?.[2]?.url, // Assuming you want the first thumbnail
+//     }));
+//     const firstVideoId = results?.items?.[0]?.id; // Extract the ID of the first video
+//     if (firstVideoId) {
+//       youtubesearchapi.GetVideoDetails(firstVideoId)
+//         .then(details => {
+//           console.log("Video details for the first video:", details?.title);
+//         })
+//         .catch(err => {
+//           console.error("Error fetching video details:", err);
+//         });
+//     }
+//     ytSearch({ videoId: firstVideoId }, (err, result) => {
+//       if (err) throw err;
+//       console.log("result " , result);
+//       console.log("result " , result?.description);
+//       console.log("result " , result?.timestamp);
+//       console.log("result " , result?.views);
+//       console.log("result " , result?.uploadDate);
+//     });
+//   })
+//   .catch(err => {
+//     console.error(err);
+//   });
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
