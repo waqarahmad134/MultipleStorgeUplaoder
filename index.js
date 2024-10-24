@@ -13,6 +13,13 @@ const youtubesearchapi = require("youtube-search-api")
 const ytSearch = require("yt-search")
 const Fuse = require("fuse.js")
 const levenshtein = require("fast-levenshtein")
+const puppeteer = require('puppeteer');
+const playwright = require('playwright');
+const { Builder, By, until } = require('selenium-webdriver');
+
+const cron = require('node-cron');  // Import node-cron
+
+
 
 const fetch = require("node-fetch")
 
@@ -706,6 +713,121 @@ app.post("/api/upload", upload.array("files"), async (req, res) => {
     })
   }
 })
+
+
+app.get('/proxy', (req, res) => {
+  const videoUrl = req.query.url;
+  request(videoUrl).pipe(res);
+});
+
+
+
+
+async function getVideoSrc() {
+  // Fetch the list of all movies from the API
+  const allMoviesResponse = await axios.get("https://backend.videosroom.com/public/api/all-movies");
+  const allMovies = allMoviesResponse?.data?.data;
+
+  // Create an array of movies with updated links
+  const movies = [
+    {
+      id: allMovies?.[0]?.id,
+      title: allMovies?.[0]?.title,
+      description: allMovies?.[0]?.description,
+      year: allMovies?.[0]?.year,
+      updatedLink: allMovies?.[0]?.download_link2?.replace('/d/', '/e/')
+    },
+    {
+      id: allMovies?.[1]?.id,
+      title: allMovies?.[1]?.title,
+      description: allMovies?.[1]?.description,
+      year: allMovies?.[1]?.year,
+      updatedLink: allMovies?.[1]?.download_link2?.replace('/d/', '/e/')
+    },
+    {
+      id: allMovies?.[2]?.id,
+      title: allMovies?.[2]?.title,
+      description: allMovies?.[2]?.description,
+      year: allMovies?.[2]?.year,
+      updatedLink: allMovies?.[2]?.download_link2?.replace('/d/', '/e/')
+    },
+    {
+      id: allMovies?.[3]?.id,
+      title: allMovies?.[3]?.title,
+      description: allMovies?.[3]?.description,
+      year: allMovies?.[3]?.year,
+      updatedLink: allMovies?.[3]?.download_link2?.replace('/d/', '/e/')
+    },
+    {
+      id: allMovies?.[4]?.id,
+      title: allMovies?.[4]?.title,
+      description: allMovies?.[4]?.description,
+      year: allMovies?.[4]?.year,
+      updatedLink: allMovies?.[4]?.download_link2?.replace('/d/', '/e/')
+    },
+    {
+      id: allMovies?.[6]?.id,
+      title: allMovies?.[6]?.title,
+      description: allMovies?.[6]?.description,
+      year: allMovies?.[6]?.year,
+      updatedLink: allMovies?.[6]?.download_link2?.replace('/d/', '/e/')
+    },
+    {
+      id: allMovies?.[7]?.id,
+      title: allMovies?.[7]?.title,
+      description: allMovies?.[7]?.description,
+      year: allMovies?.[7]?.year,
+      updatedLink: allMovies?.[7]?.download_link2?.replace('/d/', '/e/')
+    }
+  ];
+
+  // Initialize the Chrome driver
+  const driver = await new Builder().forBrowser('chrome').build();
+  for (const movie of movies) {
+    const formData = new FormData();
+    try {
+      await driver.get(movie.updatedLink);
+      await driver.wait(until.elementLocated(By.css('video#video_player_html5_api')), 10000);
+      const videoElement = await driver.findElement(By.css('video#video_player_html5_api'));
+      const videoSrc = await videoElement.getAttribute('src');
+      console.log("🚀 ~ getVideoSrc ~ videoSrc:", typeof videoSrc)
+      if (videoSrc) {
+        formData.append("title", movie?.title);
+        formData.append("description", movie?.description);
+        formData.append("iframe_link2", videoSrc);
+        try {
+          const addMovieResponse = await axios.post(
+            `https://backend.videosroom.com/public/api/update-movie/${movie.id}`,
+            formData,
+            { headers: { ...formData.getHeaders() } }
+          );
+          console.log("🚀 ~ getVideoSrc ~ addMovieResponse:", addMovieResponse)
+        } catch (addMovieError) {
+          console.error("Error uploading to backend:", addMovieError.message);
+        }
+      } else {
+        console.log('No <video> tag found on the page.');
+      }
+    } catch (error) {
+      console.error('Error:', error);
+    }
+  }
+  await driver.quit();
+}
+
+// Call the function
+
+cron.schedule('0 */4 * * *', () => {
+  console.log('Running cron job to fetch video src...');
+  getVideoSrc();
+});
+
+getVideoSrc();
+
+// cron.schedule('*/30 * * * * *', () => {
+//   console.log('Running cron job to fetch video src...');
+//   getVideoSrc('https://dood.li/e/jyhuq2t7rrhw');  // Provide the URL here
+// });
 
 // ytsr("The Signature (2024) Hindi", { safeSearch: true}).then(result => {
 //     // let movie = result.items[0];
