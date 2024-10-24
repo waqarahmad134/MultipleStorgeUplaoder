@@ -534,293 +534,305 @@ app.post("/api/remoteMixdrop", async (req, res) => {
   }
 })
 
-app.post("/api/upload", upload.array("files"), async (req, res) => {
-  selectedCategories = JSON.parse(req.body.selectedCategories)
 
-  const files = req?.files?.length === 1 ? [req?.files[0]] : req.files
-  const responses = []
-  const matchedMovies = []
-
-  let allMovies = []
-  try {
-    const allMoviesResponse = await axios.get(
-      "https://backend.videosroom.com/public/api/all-movies"
-    )
-    allMovies = allMoviesResponse?.data?.data || []
-  } catch (error) {
-    return res
-      .status(500)
-      .json({ error: "Error fetching movies", message: error.message })
-  }
-
-  try {
-    for (const file of files) {
-      let mixdropResponse, mixdropFinalResponse, youtubeData
-      const fileNameWithoutExt = file.originalname.replace(/\.[^/.]+$/, "")
-      youtubeData = await searchYoutubeNew(fileNameWithoutExt)
-
-      const matchedMovie = allMovies.find((m) => {
-        const titleA = normalizeTitle(m?.title)
-        const titleB = normalizeMixdropTitle(fileNameWithoutExt)
-        return (
-          titleA === titleB ||
-          titleA.includes(titleB) ||
-          titleB.includes(titleA)
-        )
-      })
-
-      if (matchedMovie) {
-        matchedMovies.push({
-          file: file.originalname,
-          title: matchedMovie?.title,
-        })
-        continue
-      }
-
-      try {
-        mixdropResponse = await uploadToMixdrop(file)
-        responses.push({ service: "Mixdrop", result: mixdropResponse })
-      } catch (error) {
-        console.error("Error uploading to Mixdrop:", error.message)
-        responses.push({ service: "Mixdrop", error: error.message })
-        continue
-      }
-
-      try {
-        streamWishData = await uploadToStreamwish(mixdropResponse?.result?.url)
-        responses.push({ service: "StreamWish", result: streamWishData })
-      } catch (error) {
-        console.error("Error uploading to StreamWish:", error.message)
-      }
-
-      try {
-        doodliData = await uploadToDoodli(mixdropResponse?.result?.url)
-        responses.push({
-          service: "Doodapi",
-          result: doodliData,
-          messgae: doodliData?.msg,
-        })
-      } catch (error) {
-        console.error("Error uploading to Doodapi:", error.message)
-      }
-
-      try {
-        vidHideData = await uploadToVidhide(mixdropResponse?.result?.url)
-        responses.push({ service: "Vidhide", result: vidHideData })
-      } catch (error) {
-        console.error("Error uploading to Vidhide:", error.message)
-      }
-
-      const {
-        title,
-        description,
-        duration,
-        views,
-        thumbnail,
-        timestamp,
-        uploadDate,
-      } = youtubeData || {}
-      const thumbnailUrl = thumbnail || defaultThumbnailUrl
-      const thumbnailDir = path.join(__dirname, "thumbnails")
-
-      if (!fs.existsSync(thumbnailDir)) {
-        try {
-          fs.mkdirSync(thumbnailDir, { recursive: true })
-          console.log("Thumbnail directory created:", thumbnailDir)
-        } catch (dirError) {
-          console.error("Error creating thumbnail directory:", dirError.message)
-          return res
-            .status(500)
-            .json({ error: "Failed to create thumbnail directory" })
-        }
-      }
-
-      const sanitizedTitle = (title || "Untitled_Movie")
-        .replace(/[^a-zA-Z0-9\s_-]/g, "")
-        .replace(/\s+/g, "_")
-
-      const thumbnailPath = path.join(thumbnailDir, `${sanitizedTitle}.jpg`)
-
-      try {
-        await downloadImage(thumbnailUrl, thumbnailPath)
-      } catch (downloadError) {
-        console.error(
-          `Error downloading thumbnail for: ${fileNameWithoutExt}. Using default thumbnail.`,
-          downloadError.message
-        )
-      }
-
-      const download_link1 = mixdropResponse?.result?.url
-      const iframe_link1 = mixdropResponse?.result?.embedurl
-      const download_link2 = `https://dood.li/d/${doodliData?.result?.filecode}`
-      const iframe_link2 = `https://dood.li/e/${doodliData?.result?.filecode}`
-      const download_link3 = `https://vidhideplus.com/file/${vidHideData?.result?.filecode}`
-      const iframe_link3 = `https://vidhideplus.com/embed/${vidHideData?.result?.filecode}`
-      const download_link4 = `https://playerwish.com/f/${streamWishData?.result?.filecode}`
-      const iframe_link4 = `https://playerwish.com/e/${streamWishData?.result?.filecode}`
-
-      // Prepare form data for backend API
-      const formData = new FormData()
-      formData.append("title", fileNameWithoutExt || title)
-      formData.append("description", description || fileNameWithoutExt)
-      formData.append("uploadBy", "admin")
-      formData.append("duration", timestamp || "0")
-      formData.append("views", views || "0")
-      formData.append("year", uploadDate || "0")
-      formData.append("download_link1", download_link1)
-      formData.append("iframe_link1", iframe_link1)
-      formData.append("download_link2", download_link2)
-      formData.append("iframe_link2", iframe_link2)
-      formData.append("download_link3", download_link3)
-      formData.append("iframe_link3", iframe_link3)
-      formData.append("download_link4", download_link4)
-      formData.append("iframe_link4", iframe_link4)
-      formData.append("thumbnail", fs.createReadStream(thumbnailPath))
-      selectedCategories.forEach((id) => formData.append("category_ids[]", id))
-
-      // Send movie data to backend API
-      try {
-        const addMovieResponse = await axios.post(
-          "https://backend.videosroom.com/public/api/add-movie",
-          formData,
-          { headers: { ...formData.getHeaders() } }
-        )
-
-        responses.push({
-          service: "Backend API",
-          result: addMovieResponse.data,
-        })
-      } catch (addMovieError) {
-        console.error("Error uploading to backend:", addMovieError.message)
-      }
-    }
-
-    res.json({
-      status: 1,
-      message: "File processing completed",
-      matchedMovies,
-      responses,
-    })
-  } catch (error) {
-    res
-      .status(500)
-      .json({ error: "Error uploading files", message: error.message })
-  } finally {
-    files.forEach((file) => {
-      if (fs.existsSync(file.path)) {
-        fs.unlinkSync(file.path)
-      }
-    })
-  }
-})
-
-
-app.get('/proxy', (req, res) => {
-  const videoUrl = req.query.url;
-  request(videoUrl).pipe(res);
-});
+// first simple atempt 
+// async function getVideoSrc() {
+//   // Fetch the list of all movies from the API
+//   const allMoviesResponse = await axios.get("https://backend.videosroom.com/public/api/all-movies");
+//   const allMovies = allMoviesResponse?.data?.data;
+//   const movies = [
+//     {
+//       id: allMovies?.[0]?.id,
+//       title: allMovies?.[0]?.title,
+//       description: allMovies?.[0]?.description,
+//       year: allMovies?.[0]?.year,
+//       doodliLink: allMovies?.[0]?.download_link2?.replace('/d/', '/e/'),
+//       streamTapeLink: allMovies?.[0]?.download_link3?.replace('/v/', '/e/'),
+//       poopupLink: allMovies?.[0]?.download_link4?.replace('/d/', '/e/'),
+//       veevLink: allMovies?.[0]?.download_link5?.replace('/d/', '/e/'),
+//     }
+//   ];
+//   const driver = await new Builder().forBrowser('chrome').build();
+//   for (const movie of movies) {
+//     const formData = new FormData();
+//     try {
+//       await driver.get(movie.doodliLink);
+//       await driver.wait(until.elementLocated(By.css('video#video_player_html5_api')), 10000);
+//       const videoElement = await driver.findElement(By.css('video#video_player_html5_api'));
+//       const videoSrc = await videoElement.getAttribute('src');
+//       console.log("🚀 ~ getVideoSrc ~ videoSrc:", typeof videoSrc)
+//       if (videoSrc) {
+//         formData.append("title", movie?.title);
+//         formData.append("description", movie?.description);
+//         formData.append("iframe_link2", videoSrc);
+//         try {
+//           const addMovieResponse = await axios.post(
+//             `https://backend.videosroom.com/public/api/update-movie/${movie.id}`,
+//             formData,
+//             { headers: { ...formData.getHeaders() } }
+//           );
+//           console.log("🚀 ~ getVideoSrc ~ addMovieResponse:", addMovieResponse)
+//         } catch (addMovieError) {
+//           console.error("Error uploading to backend:", addMovieError.message);
+//         }
+//       } else {
+//         console.log('No <video> tag found on the page.');
+//       }
+//     } catch (error) {
+//       console.error('Error:', error);
+//     }
+//   }
+//   await driver.quit();
+// }
 
 
 
+
+// async function getVideoSrc() {
+//   // Fetch the list of all movies from the API
+//   const allMoviesResponse = await axios.get("https://backend.videosroom.com/public/api/all-movies");
+//   const allMovies = allMoviesResponse?.data?.data;
+
+//   const movies = allMovies?.map(movie => ({
+//     id: movie?.id,
+//     title: movie?.title,
+//     description: movie?.description,
+//     year: movie?.year,
+//     doodliLink: movie?.download_link2?.replace('/d/', '/e/'),
+//     streamTapeLink: movie?.download_link3?.replace('/v/', '/e/'),
+//     poopupLink: "https://poophd.com/view/edbp8o5233z4",
+//     // veevLink: movie?.download_link5?.replace('/d/', '/e/')
+//   }));
+
+//   // Initialize the Chrome driver
+//   const driver = await new Builder().forBrowser('chrome').build();
+
+//   // Function to fetch video source from a link
+//   async function fetchVideoSrc(link) {
+//     if (!link) return null; // Skip if the link is not available
+//     try {
+//       await driver.get(link);
+
+//       let videoSrc = null;
+//       const maxAttempts = 50;  // Set a max number of attempts to check for video src
+//       let attempts = 0;
+
+//       // Wait dynamically until the video source is found or maxAttempts reached
+//       while (attempts < maxAttempts) {
+//         try {
+//           // Find the <video> tag on the page (without specific ID)
+//           const videoElement = await driver.findElement(By.css('video'));
+//           videoSrc = await videoElement.getAttribute('src');
+//           if (videoSrc) {
+//             console.log(`🚀 Found video source: ${videoSrc}`);
+//             return videoSrc;
+//           }
+//         }catch (err) {
+//           // Element not found, keep checking until maxAttempts
+//         }
+
+//         // Wait for 200ms before trying again
+//         await new Promise(resolve => setTimeout(resolve, 200));
+//         attempts++;
+//       }
+
+//       console.log(`No <video> tag found or no src for link: ${link}`);
+//       return null;
+//     } catch (error) {
+//       console.error(`Error fetching video source for link: ${link}`, error);
+//       return null;
+//     }
+//   }
+
+//   // Iterate over each movie and collect all video sources
+//   for (const movie of movies) {
+//     const formData = new FormData();
+//     const fieldsAdded = {};  // Track which fields are added
+
+//     formData.append("title", movie?.title);
+//     formData.append("description", movie?.description);
+
+//     const doodliSrc = await fetchVideoSrc(movie?.doodliLink);
+//     const streamTapeSrc = await fetchVideoSrc(movie?.streamTapeLink);
+//     const poopupSrc = await fetchVideoSrc(movie?.poopupLink);
+//     // const veevSrc = await fetchVideoSrc(movie?.veevLink);
+
+//     if (doodliSrc) {
+//       formData.append("iframe_link2", doodliSrc);
+//       fieldsAdded['iframe_link2'] = true;
+//     }
+//     if (streamTapeSrc) {
+//       formData.append("iframe_link3", streamTapeSrc);
+//       fieldsAdded['iframe_link3'] = true;
+//     }
+//     if (poopupSrc) {
+//       formData.append("iframe_link4", poopupSrc);
+//       fieldsAdded['iframe_link4'] = true;
+//     }
+//     // if (veevSrc) {
+//     //   formData.append("iframe_link5", veevSrc);
+//     //   fieldsAdded['iframe_link5'] = true;
+//     // }
+
+//     // Only hit the API after gathering all the links
+//     if (Object.keys(fieldsAdded).length > 0) {
+//       try {
+//         const addMovieResponse = await axios.post(
+//           `https://backend.videosroom.com/public/api/update-movie/${movie.id}`,
+//           formData,
+//           { headers: { ...formData.getHeaders() } }
+//         );
+//         console.log(`🚀 Successfully submitted all links for movie: ${movie.title}`, addMovieResponse.data);
+//       } catch (addMovieError) {
+//         console.error(`Error submitting all links for ${movie.title}:`, addMovieError.message);
+//       }
+//     } else {
+//       console.log(`No video sources found for movie: ${movie.title}`);
+//     }
+//   }
+
+//   await driver.quit();
+// }
 
 async function getVideoSrc() {
   // Fetch the list of all movies from the API
   const allMoviesResponse = await axios.get("https://backend.videosroom.com/public/api/all-movies");
   const allMovies = allMoviesResponse?.data?.data;
 
-  // Create an array of movies with updated links
-  const movies = [
-    {
-      id: allMovies?.[0]?.id,
-      title: allMovies?.[0]?.title,
-      description: allMovies?.[0]?.description,
-      year: allMovies?.[0]?.year,
-      updatedLink: allMovies?.[0]?.download_link2?.replace('/d/', '/e/')
-    },
-    {
-      id: allMovies?.[1]?.id,
-      title: allMovies?.[1]?.title,
-      description: allMovies?.[1]?.description,
-      year: allMovies?.[1]?.year,
-      updatedLink: allMovies?.[1]?.download_link2?.replace('/d/', '/e/')
-    },
-    {
-      id: allMovies?.[2]?.id,
-      title: allMovies?.[2]?.title,
-      description: allMovies?.[2]?.description,
-      year: allMovies?.[2]?.year,
-      updatedLink: allMovies?.[2]?.download_link2?.replace('/d/', '/e/')
-    },
-    {
-      id: allMovies?.[3]?.id,
-      title: allMovies?.[3]?.title,
-      description: allMovies?.[3]?.description,
-      year: allMovies?.[3]?.year,
-      updatedLink: allMovies?.[3]?.download_link2?.replace('/d/', '/e/')
-    },
-    {
-      id: allMovies?.[4]?.id,
-      title: allMovies?.[4]?.title,
-      description: allMovies?.[4]?.description,
-      year: allMovies?.[4]?.year,
-      updatedLink: allMovies?.[4]?.download_link2?.replace('/d/', '/e/')
-    },
-    {
-      id: allMovies?.[6]?.id,
-      title: allMovies?.[6]?.title,
-      description: allMovies?.[6]?.description,
-      year: allMovies?.[6]?.year,
-      updatedLink: allMovies?.[6]?.download_link2?.replace('/d/', '/e/')
-    },
-    {
-      id: allMovies?.[7]?.id,
-      title: allMovies?.[7]?.title,
-      description: allMovies?.[7]?.description,
-      year: allMovies?.[7]?.year,
-      updatedLink: allMovies?.[7]?.download_link2?.replace('/d/', '/e/')
-    }
-  ];
+  const movies = allMovies?.map(movie => ({
+    id: movie?.id,
+    title: movie?.title,
+    description: movie?.description,
+    year: movie?.year,
+    doodliLink: movie?.download_link2?.replace('/d/', '/e/'),
+    streamTapeLink: movie?.download_link3?.replace('/v/', '/e/'),
+    poopupLink: "https://poophd.com/view/edbp8o5233z4",
+    veevLink: movie?.download_link5?.replace('/d/', '/e/')
+  }));
 
   // Initialize the Chrome driver
   const driver = await new Builder().forBrowser('chrome').build();
-  for (const movie of movies) {
-    const formData = new FormData();
+
+  // Function to fetch video source from a link
+  async function fetchVideoSrc(link, isVeev = false) {
+    if (!link) return null; // Skip if the link is not available
     try {
-      await driver.get(movie.updatedLink);
-      await driver.wait(until.elementLocated(By.css('video#video_player_html5_api')), 10000);
-      const videoElement = await driver.findElement(By.css('video#video_player_html5_api'));
-      const videoSrc = await videoElement.getAttribute('src');
-      console.log("🚀 ~ getVideoSrc ~ videoSrc:", typeof videoSrc)
-      if (videoSrc) {
-        formData.append("title", movie?.title);
-        formData.append("description", movie?.description);
-        formData.append("iframe_link2", videoSrc);
+      await driver.get(link);
+
+      let videoSrc = null;
+      const maxAttempts = 2;  // Set a max number of attempts to check for video src
+      let attempts = 0;
+
+      // First, attempt to find a generic <video> tag
+      while (attempts < maxAttempts) {
         try {
-          const addMovieResponse = await axios.post(
-            `https://backend.videosroom.com/public/api/update-movie/${movie.id}`,
-            formData,
-            { headers: { ...formData.getHeaders() } }
-          );
-          console.log("🚀 ~ getVideoSrc ~ addMovieResponse:", addMovieResponse)
-        } catch (addMovieError) {
-          console.error("Error uploading to backend:", addMovieError.message);
+          // If it's a veevLink, check for <source> tag inside <video>
+          if (isVeev) {
+            const sourceElement = await driver.findElement(By.css('video > source'));
+            videoSrc = await sourceElement.getAttribute('src');
+            if (videoSrc) {
+              console.log(`🚀 Found video source (inside <source> tag): ${videoSrc}`);
+              return videoSrc;
+            }
+          } else {
+            // For other links, check directly for <video> tag
+            const videoElement = await driver.findElement(By.css('video'));
+            videoSrc = await videoElement.getAttribute('src');
+            if (videoSrc) {
+              console.log(`🚀 Found video source (generic <video>): ${videoSrc}`);
+              return videoSrc;
+            }
+          }
+        } catch (err) {
+          // Element not found, keep checking until maxAttempts
         }
-      } else {
-        console.log('No <video> tag found on the page.');
+
+        // Wait for 200ms before trying again
+        await new Promise(resolve => setTimeout(resolve, 200));
+        attempts++;
       }
+
+      // If not found, try specifically with #video_player_html5_api (if not veevLink)
+      if (!isVeev) {
+        console.log('Generic <video> not found, trying with #video_player_html5_api...');
+        try {
+          const videoElement = await driver.wait(
+            until.elementLocated(By.css('video#video_player_html5_api')),
+            10000 // 10 seconds max wait
+          );
+          videoSrc = await videoElement.getAttribute('src');
+          if (videoSrc) {
+            console.log(`🚀 Found video source (#video_player_html5_api): ${videoSrc}`);
+            return videoSrc;
+          }
+        } catch (error) {
+          console.log(`No <video> or #video_player_html5_api found for link: ${link}`);
+        }
+      }
+
+      return null;
     } catch (error) {
-      console.error('Error:', error);
+      console.error(`Error fetching video source for link: ${link}`, error);
+      return null;
     }
   }
+
+  // Iterate over each movie and collect all video sources
+  for (const movie of movies) {
+    const formData = new FormData();
+    const fieldsAdded = {};  // Track which fields are added
+
+    formData.append("title", movie?.title);
+    formData.append("description", movie?.description);
+
+    const doodliSrc = await fetchVideoSrc(movie?.doodliLink);
+    const streamTapeSrc = await fetchVideoSrc(movie?.streamTapeLink);
+    const poopupSrc = await fetchVideoSrc(movie?.poopupLink);
+    const veevSrc = await fetchVideoSrc(movie?.veevLink, true);  // Pass 'true' to handle <source> tag
+
+    if (doodliSrc) {
+      formData.append("iframe_link2", doodliSrc);
+      fieldsAdded['iframe_link2'] = true;
+    }
+    if (streamTapeSrc) {
+      formData.append("iframe_link3", streamTapeSrc);
+      fieldsAdded['iframe_link3'] = true;
+    }
+    if (poopupSrc) {
+      formData.append("iframe_link4", poopupSrc);
+      fieldsAdded['iframe_link4'] = true;
+    }
+    if (veevSrc) {
+      formData.append("iframe_link5", veevSrc);
+      fieldsAdded['iframe_link5'] = true;
+    }
+
+    // Only hit the API after gathering all the links
+    if (Object.keys(fieldsAdded).length > 0) {
+      try {
+        const addMovieResponse = await axios.post(
+          `https://backend.videosroom.com/public/api/update-movie/${movie.id}`,
+          formData,
+          { headers: { ...formData.getHeaders() } }
+        );
+        console.log(`🚀 Successfully submitted all links for movie: ${movie.title}`, addMovieResponse.data);
+      } catch (addMovieError) {
+        console.error(`Error submitting all links for ${movie.title}:`, addMovieError.message);
+      }
+    } else {
+      console.log(`No video sources found for movie: ${movie.title}`);
+    }
+  }
+
   await driver.quit();
 }
 
-// Call the function
 
-cron.schedule('0 */4 * * *', () => {
-  console.log('Running cron job to fetch video src...');
-  getVideoSrc();
-});
+
+// cron.schedule('0 */4 * * *', () => {
+//   console.log('Running cron job to fetch video src...');
+//   getVideoSrc();
+// });
 
 getVideoSrc();
 
@@ -829,46 +841,6 @@ getVideoSrc();
 //   getVideoSrc('https://dood.li/e/jyhuq2t7rrhw');  // Provide the URL here
 // });
 
-// ytsr("The Signature (2024) Hindi", { safeSearch: true}).then(result => {
-//     // let movie = result.items[0];
-//     console.log("🚀 ~ ytsr ~ movie:", result)
-// });
-
-// const options = {
-//   maxResults: 5,
-// };
-
-// youtubesearchapi.GetListByKeyword("Deadpool Regenerates", options)
-//   .then(results => {
-//     console.log("first" , results?.items?.filter(data => data?.type === "video"))
-//     const videos = results?.items?.map(video => ({
-//       title: video.title,
-//       thumbnail: video.thumbnail?.thumbnails?.[0]?.url, // Assuming you want the first thumbnail
-//       thumbnail1: video.thumbnail?.thumbnails?.[1]?.url, // Assuming you want the first thumbnail
-//       thumbnail2: video.thumbnail?.thumbnails?.[2]?.url, // Assuming you want the first thumbnail
-//     }));
-//     const firstVideoId = results?.items?.[0]?.id; // Extract the ID of the first video
-//     if (firstVideoId) {
-//       youtubesearchapi.GetVideoDetails(firstVideoId)
-//         .then(details => {
-//           console.log("Video details for the first video:", details?.title);
-//         })
-//         .catch(err => {
-//           console.error("Error fetching video details:", err);
-//         });
-//     }
-//     ytSearch({ videoId: firstVideoId }, (err, result) => {
-//       if (err) throw err;
-//       console.log("result " , result);
-//       console.log("result " , result?.description);
-//       console.log("result " , result?.timestamp);
-//       console.log("result " , result?.views);
-//       console.log("result " , result?.uploadDate);
-//     });
-//   })
-//   .catch(err => {
-//     console.error(err);
-//   });
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
