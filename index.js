@@ -8,7 +8,7 @@ const cors = require("cors")
 const youtubesearchapi = require("youtube-search-api")
 const ytSearch = require("yt-search")
 const app = express()
-app.use(cors({ origin: '*' }));
+app.use(cors({ origin: "*" }))
 app.use(express.json())
 const { Builder, By, until } = require("selenium-webdriver")
 const fetch = require("node-fetch")
@@ -700,8 +700,11 @@ app.get("/getVideoSrc/:slug", async (req, res) => {
     }
     const currentTime = new Date()
     const updatedTime = new Date(updatedAt)
+    console.log("🚀 ~ app.get ~ updatedTime:", updatedTime)
     const timeDifference =
       Math.abs(currentTime - updatedTime) / (1000 * 60 * 60)
+    console.log("🚀 ~ app.get ~ timeDifference:", timeDifference)
+
     if (timeDifference > 6) {
       const doodliLink = data?.download_link2?.replace("/d/", "/e/")
       const streamTapeLink = data?.download_link3
@@ -784,7 +787,7 @@ app.get("/getVideoSrc/:slug", async (req, res) => {
                 }
               }
             } catch (error) {
-              console.error("Error in delayed second API call:", error.message)
+              console.error("Second API call:", error.message)
             } finally {
               if (driver) {
                 try {
@@ -794,7 +797,7 @@ app.get("/getVideoSrc/:slug", async (req, res) => {
                 }
               }
             }
-          }, 10000)
+          }, 1000)
 
           return res
             .status(200)
@@ -815,6 +818,143 @@ app.get("/getVideoSrc/:slug", async (req, res) => {
       return res
         .status(200)
         .json({ message: "No need to work, less than 6 hours" })
+    }
+  } catch (error) {
+    console.error("Error fetching movie data:", error.message)
+    return res.status(500).json({ message: "Internal server error" })
+  } finally {
+    if (driver) {
+      try {
+        await driver.quit()
+      } catch (quitError) {
+        console.error("Error quitting the driver:", quitError.message)
+      }
+    }
+  }
+})
+
+app.get("/adminVideoSrc/:slug", async (req, res) => {
+  const slug = req.params.slug
+  if (!slug) {
+    return res.status(400).json({ message: "Slug parameter is missing" })
+  }
+  let driver
+  try {
+    const response = await axios.get(
+      `https://backend.videosroom.com/public/api/movie/${slug}`
+    )
+    const updatedAt = response?.data?.data?.updated_at
+    const data = response?.data?.data
+    if (!updatedAt) {
+      return res.status(404).json({ message: "Movie data not found" })
+    }
+    const doodliLink = data?.download_link2?.replace("/d/", "/e/")
+    const streamTapeLink = data?.download_link3
+    const veevLink = data?.download_link6?.replace("/d/", "/e/")
+
+    driver = await new Builder().forBrowser("chrome").build()
+    await driver.get(doodliLink)
+    try {
+      const videoElement = await driver.wait(
+        until.elementLocated(By.css("video#video_player_html5_api")),
+        10000
+      )
+      const videoSrc = await videoElement.getAttribute("src")
+      if (videoSrc) {
+        const formData = new FormData()
+        formData.append("title", data?.title || "")
+        formData.append("description", data?.description || "")
+        formData.append("iframe_link2", videoSrc)
+        formData.append("year", data?.year || "")
+        formData.append("uploadBy", "admin")
+        formData.append("views", data?.views || "0")
+        const addMovieResponse = await axios.post(
+          `https://backend.videosroom.com/public/api/update-movie/${data.id}`,
+          formData,
+          { headers: { ...formData.getHeaders() } }
+        )
+
+        setTimeout(async () => {
+          try {
+            driver = await new Builder().forBrowser("chrome").build()
+
+            if (streamTapeLink) {
+              await driver.get(streamTapeLink)
+              const videoElement = await driver.wait(
+                until.elementLocated(By.css("video#mainvideo")),
+                10000
+              )
+              const videoSrc = await videoElement.getAttribute("src")
+              if (videoSrc) {
+                const formData = new FormData()
+                formData.append("title", data?.title || "")
+                formData.append("description", data?.description || "")
+                formData.append("iframe_link3", videoSrc)
+                formData.append("year", data?.year || "")
+                formData.append("uploadBy", "admin")
+                formData.append("views", data?.views || "0")
+                await axios.post(
+                  `https://backend.videosroom.com/public/api/update-movie/${data.id}`,
+                  formData,
+                  { headers: { ...formData.getHeaders() } }
+                )
+              }
+            }
+
+            // Now, handle veevLink
+            if (veevLink) {
+              await driver.get(veevLink)
+              const videoElement = await driver.wait(
+                until.elementLocated(By.css("source")),
+                10000 // 10 seconds max wait
+              )
+              console.log("🚀 ~ setTimeout ~ videoElement:", videoElement)
+              const videoSrc = await videoElement.getAttribute("src")
+              // const videoSrc = await driver.executeScript(
+              //   'return document.querySelector("video source")?.getAttribute("src");'
+              // );
+              if (videoSrc) {
+                const formData = new FormData()
+                formData.append("title", data?.title || "")
+                formData.append("description", data?.description || "")
+                formData.append("iframe_link6", videoSrc)
+                formData.append("year", data?.year || "")
+                formData.append("uploadBy", "admin")
+                formData.append("views", data?.views || "0")
+                await axios.post(
+                  `https://backend.videosroom.com/public/api/update-movie/${data.id}`,
+                  formData,
+                  { headers: { ...formData.getHeaders() } }
+                )
+              }
+            }
+          } catch (error) {
+            console.error("Second API call:", error.message)
+          } finally {
+            if (driver) {
+              try {
+                await driver.quit()
+              } catch (quitError) {
+                console.error("Error quitting the driver:", quitError.message)
+              }
+            }
+          }
+        }, 1000)
+
+        return res
+          .status(200)
+          .json({ addMovieResponse: addMovieResponse.data, videoSrc })
+      } else {
+        return res.status(404).json({ message: "Video source not found" })
+      }
+    } catch (error) {
+      console.error(
+        "Error processing video source or sending data:",
+        error.message
+      )
+      return res
+        .status(500)
+        .json({ message: "Error processing video source or sending data" })
     }
   } catch (error) {
     console.error("Error fetching movie data:", error.message)
